@@ -11,7 +11,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.Lifecycle
 import com.example.yungasdistribuidora.util.BiometricAuthManager
+import com.example.yungasdistribuidora.util.BiometricStartResult
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun AppUnlockScreen(
@@ -27,31 +31,56 @@ fun AppUnlockScreen(
 
     val lockState by appLockManager.lockState.collectAsState()
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var lastAttemptGeneration by remember { mutableStateOf(-1L) }
+    val coroutineScope = rememberCoroutineScope()
 
-    val triggerBiometric = {
-        if (!appLockManager.isBiometricPromptActive) {
-            appLockManager.setAuthenticating(true)
-            biometricAuthManager.authenticate(
-                activity = activity,
-                title = "Yungas Distribuidora",
-                subtitle = "Verifica tu identidad para continuar",
-                onSuccess = {
-                    appLockManager.setUnlocked()
-                },
-                onError = { err ->
-                    appLockManager.setError(err)
-                    errorMessage = err
-                },
-                onFailed = {
-                    appLockManager.setLocked()
-                    errorMessage = "No se pudo verificar tu identidad. Intenta nuevamente."
+    val triggerBiometric = remember(activity, biometricAuthManager, appLockManager) {
+        {
+            if (!appLockManager.isBiometricPromptActive && lockState is AppLockState.Locked) {
+                appLockManager.setAuthenticating(true)
+                errorMessage = null
+
+                coroutineScope.launch {
+                    // Wait until activity is RESUMED
+                    while (activity.lifecycle.currentState != Lifecycle.State.RESUMED) {
+                        delay(50)
+                        if (activity.isFinishing || activity.isDestroyed) {
+                            appLockManager.setLocked()
+                            appLockManager.isBiometricPromptActive = false
+                            return@launch
+                        }
+                    }
+
+                    val result = biometricAuthManager.authenticate(
+                        activity = activity,
+                        title = "Yungas Distribuidora",
+                        subtitle = "Verifica tu identidad para continuar",
+                        onSuccess = {
+                            appLockManager.setUnlocked()
+                        },
+                        onError = { err ->
+                            appLockManager.setError(err)
+                            errorMessage = err
+                        },
+                        onFailed = {
+                            appLockManager.setLocked()
+                            errorMessage = "No se pudo verificar tu identidad. Intenta nuevamente."
+                        }
+                    )
+
+                    if (result is BiometricStartResult.NotStarted) {
+                        appLockManager.setLocked()
+                        appLockManager.isBiometricPromptActive = false
+                        errorMessage = result.message
+                    }
                 }
-            )
+            }
         }
     }
 
-    LaunchedEffect(Unit) {
-        if (lockState is AppLockState.Locked) {
+    LaunchedEffect(appLockManager.lockGeneration, lockState) {
+        if (lockState is AppLockState.Locked && appLockManager.lockGeneration != lastAttemptGeneration) {
+            lastAttemptGeneration = appLockManager.lockGeneration
             triggerBiometric()
         }
     }
@@ -97,11 +126,20 @@ fun AppUnlockScreen(
 
             Spacer(modifier = Modifier.height(32.dp))
 
+            val isAuthenticating = lockState is AppLockState.Authenticating
+
             Button(
                 onClick = { triggerBiometric() },
-                modifier = Modifier.fillMaxWidth().height(50.dp)
+                modifier = Modifier.fillMaxWidth().height(50.dp),
+                enabled = !appLockManager.isBiometricPromptActive
             ) {
-                Text("Desbloquear")
+                if (isAuthenticating) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp), color = MaterialTheme.colorScheme.onPrimary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Verificando identidad...")
+                } else {
+                    Text("Desbloquear")
+                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))

@@ -1,9 +1,12 @@
 package com.example.yungasdistribuidora.presentation.navigation
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.fragment.app.FragmentActivity
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -19,6 +22,8 @@ import com.example.yungasdistribuidora.presentation.clients.form.ClientFormViewM
 import com.example.yungasdistribuidora.presentation.clients.list.ClientsScreen
 import com.example.yungasdistribuidora.presentation.clients.list.ClientsViewModel
 import com.example.yungasdistribuidora.presentation.components.ConnectionStatusBanner
+import com.example.yungasdistribuidora.presentation.lock.AppLockState
+import com.example.yungasdistribuidora.presentation.lock.AppUnlockScreen
 import com.example.yungasdistribuidora.presentation.login.LoginScreen
 import com.example.yungasdistribuidora.presentation.login.LoginViewModel
 import com.example.yungasdistribuidora.presentation.splash.SplashScreen
@@ -37,6 +42,10 @@ fun AppNavGraph() {
     val authRepo = app.authRepository
     val clientRepo = app.clientRepository
     val offlineSessionManager = app.offlineSessionManager
+    val appLockManager = app.appLockManager
+    val biometricAuthManager = app.biometricAuthManager
+    val lockState by appLockManager.lockState.collectAsState()
+    val activity = LocalContext.current as? FragmentActivity
 
     var tempRecoveryCodes by remember { mutableStateOf<List<String>>(emptyList()) }
     var tempUserRole by remember { mutableStateOf("") }
@@ -48,275 +57,304 @@ fun AppNavGraph() {
 
     val dateFormat = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
 
-    NavHost(navController = navController, startDestination = "splash") {
-        composable("splash") {
-            val viewModel = remember { SplashViewModel(authRepo, offlineSessionManager) }
-            SplashScreen(
-                viewModel = viewModel,
-                onNavigateOnline = { route ->
-                    isOfflineMode = false
-                    runBlocking {
-                        authRepo.getCurrentUser().onSuccess { user ->
-                            currentUserName = user.name
-                            currentUserEmail = user.email
-                            currentUserRole = user.role
-                        }
-                    }
-                    navController.navigate(route) {
-                        popUpTo("splash") { inclusive = true }
-                    }
-                },
-                onNavigateOffline = { session ->
-                    isOfflineMode = true
-                    currentUserName = session.name
-                    currentUserEmail = session.email
-                    currentUserRole = session.role
-                    lastValidationTimeStr = dateFormat.format(Date(session.lastOnlineValidationAt))
-                    val route = when (session.role) {
-                        UserRole.ADMIN -> "admin_home"
-                        UserRole.VENDEDOR -> "vendor_home"
-                        else -> "role_not_available"
-                    }
-                    navController.navigate(route) {
-                        popUpTo("splash") { inclusive = true }
-                    }
-                },
-                onNavigateToLogin = { message ->
-                    authRepo.clearLocalSession()
-                    navController.navigate("login") {
-                        popUpTo("splash") { inclusive = true }
-                    }
-                }
-            )
-        }
-
-        composable("login") {
-            val viewModel = remember { LoginViewModel(authRepo) }
-            LoginScreen(
-                viewModel = viewModel,
-                onNavigateToTwoFactorVerify = { token ->
-                    navController.navigate("two_factor_verify/$token")
-                },
-                onNavigateToTwoFactorSetup = { token ->
-                    navController.navigate("two_factor_setup/$token")
-                }
-            )
-        }
-
-        composable(
-            route = "two_factor_setup/{token}",
-            arguments = listOf(navArgument("token") { type = NavType.StringType })
-        ) { backStackEntry ->
-            val token = backStackEntry.arguments?.getString("token") ?: ""
-            val viewModel = remember { TwoFactorSetupViewModel(authRepo, token) }
-            TwoFactorSetupScreen(
-                viewModel = viewModel,
-                onConfirmed = { codes, role ->
-                    tempRecoveryCodes = codes
-                    tempUserRole = role
-                    currentUserRole = UserRole.fromString(role)
-                    navController.navigate("recovery_codes") {
-                        popUpTo("login") { inclusive = true }
-                    }
-                },
-                onBackToLogin = {
-                    navController.navigate("login") {
-                        popUpTo("login") { inclusive = true }
-                    }
-                }
-            )
-        }
-
-        composable("recovery_codes") {
-            RecoveryCodesScreen(
-                recoveryCodes = tempRecoveryCodes,
-                userRole = tempUserRole,
-                onNavigateToHome = { route ->
-                    runBlocking {
-                        authRepo.getCurrentUser().onSuccess { user ->
-                            currentUserName = user.name
-                            currentUserEmail = user.email
-                            currentUserRole = user.role
-                        }
-                    }
-                    navController.navigate(route) {
-                        popUpTo("recovery_codes") { inclusive = true }
-                    }
-                }
-            )
-        }
-
-        composable(
-            route = "two_factor_verify/{token}",
-            arguments = listOf(navArgument("token") { type = NavType.StringType })
-        ) { backStackEntry ->
-            val token = backStackEntry.arguments?.getString("token") ?: ""
-            val viewModel = remember { TwoFactorVerifyViewModel(authRepo, token) }
-            TwoFactorVerifyScreen(
-                viewModel = viewModel,
-                onVerified = { route ->
-                    runBlocking {
-                        authRepo.getCurrentUser().onSuccess { user ->
-                            currentUserName = user.name
-                            currentUserEmail = user.email
-                            currentUserRole = user.role
-                        }
-                    }
-                    navController.navigate(route) {
-                        popUpTo("login") { inclusive = true }
-                    }
-                },
-                onNavigateToRecovery = {
-                    navController.navigate("two_factor_recovery/$token")
-                },
-                onBackToLogin = {
-                    navController.navigate("login") {
-                        popUpTo("login") { inclusive = true }
-                    }
-                }
-            )
-        }
-
-        composable(
-            route = "two_factor_recovery/{token}",
-            arguments = listOf(navArgument("token") { type = NavType.StringType })
-        ) { backStackEntry ->
-            val token = backStackEntry.arguments?.getString("token") ?: ""
-            val viewModel = remember { TwoFactorRecoveryViewModel(authRepo, token) }
-            TwoFactorRecoveryScreen(
-                viewModel = viewModel,
-                onRecovered = { route ->
-                    runBlocking {
-                        authRepo.getCurrentUser().onSuccess { user ->
-                            currentUserName = user.name
-                            currentUserEmail = user.email
-                            currentUserRole = user.role
-                        }
-                    }
-                    navController.navigate(route) {
-                        popUpTo("login") { inclusive = true }
-                    }
-                },
-                onBackToVerify = {
-                    navController.popBackStack()
-                }
-            )
-        }
-
-        composable("admin_home") {
-            Column(modifier = Modifier.fillMaxSize()) {
-                ConnectionStatusBanner(isOffline = isOfflineMode, lastValidationTime = lastValidationTimeStr)
-                InicioAdministradorScreen(
-                    userName = currentUserName.ifBlank { "Administrador" },
-                    userEmail = currentUserEmail.ifBlank { "admin@yungasdistribuidora.cc" },
-                    onNavigateToClients = { navController.navigate("clients") },
-                    onLogout = {
-                        runBlocking { authRepo.logout() }
+    Box(modifier = Modifier.fillMaxSize()) {
+        NavHost(navController = navController, startDestination = "splash") {
+            composable("splash") {
+                val viewModel = remember { SplashViewModel(authRepo, offlineSessionManager) }
+                SplashScreen(
+                    viewModel = viewModel,
+                    onNavigateOnline = { route ->
                         isOfflineMode = false
+                        runBlocking {
+                            authRepo.getCurrentUser().onSuccess { user ->
+                                currentUserName = user.name
+                                currentUserEmail = user.email
+                                currentUserRole = user.role
+                            }
+                        }
+                        appLockManager.requireUnlockAfterSessionRestore()
+                        navController.navigate(route) {
+                            popUpTo("splash") { inclusive = true }
+                        }
+                    },
+                    onNavigateOffline = { session ->
+                        isOfflineMode = true
+                        currentUserName = session.name
+                        currentUserEmail = session.email
+                        currentUserRole = session.role
+                        lastValidationTimeStr = dateFormat.format(Date(session.lastOnlineValidationAt))
+                        appLockManager.requireUnlockAfterSessionRestore()
+                        val route = when (session.role) {
+                            UserRole.ADMIN -> "admin_home"
+                            UserRole.VENDEDOR -> "vendor_home"
+                            else -> "role_not_available"
+                        }
+                        navController.navigate(route) {
+                            popUpTo("splash") { inclusive = true }
+                        }
+                    },
+                    onNavigateToLogin = { message ->
+                        authRepo.clearLocalSession()
+                        appLockManager.clear()
                         navController.navigate("login") {
-                            popUpTo(0) { inclusive = true }
+                            popUpTo("splash") { inclusive = true }
                         }
                     }
                 )
             }
-        }
 
-        composable("vendor_home") {
-            Column(modifier = Modifier.fillMaxSize()) {
-                ConnectionStatusBanner(isOffline = isOfflineMode, lastValidationTime = lastValidationTimeStr)
-                InicioVendedorScreen(
-                    userName = currentUserName.ifBlank { "Vendedor" },
-                    userEmail = currentUserEmail.ifBlank { "vendedor@yungasdistribuidora.cc" },
-                    onNavigateToClients = { navController.navigate("clients") },
-                    onLogout = {
-                        runBlocking { authRepo.logout() }
-                        isOfflineMode = false
+            composable("login") {
+                val viewModel = remember { LoginViewModel(authRepo) }
+                LoginScreen(
+                    viewModel = viewModel,
+                    onNavigateToTwoFactorVerify = { token ->
+                        navController.navigate("two_factor_verify/$token")
+                    },
+                    onNavigateToTwoFactorSetup = { token ->
+                        navController.navigate("two_factor_setup/$token")
+                    }
+                )
+            }
+
+            composable(
+                route = "two_factor_setup/{token}",
+                arguments = listOf(navArgument("token") { type = NavType.StringType })
+            ) { backStackEntry ->
+                val token = backStackEntry.arguments?.getString("token") ?: ""
+                val viewModel = remember { TwoFactorSetupViewModel(authRepo, token) }
+                TwoFactorSetupScreen(
+                    viewModel = viewModel,
+                    onConfirmed = { codes, role ->
+                        tempRecoveryCodes = codes
+                        tempUserRole = role
+                        currentUserRole = UserRole.fromString(role)
+                        appLockManager.onInteractiveAuthenticationCompleted()
+                        navController.navigate("recovery_codes") {
+                            popUpTo("login") { inclusive = true }
+                        }
+                    },
+                    onBackToLogin = {
                         navController.navigate("login") {
-                            popUpTo(0) { inclusive = true }
+                            popUpTo("login") { inclusive = true }
                         }
                     }
                 )
             }
-        }
 
-        composable("role_not_available") {
-            Column(modifier = Modifier.fillMaxSize()) {
-                ConnectionStatusBanner(isOffline = isOfflineMode, lastValidationTime = lastValidationTimeStr)
-                RolNoDisponibleScreen(
-                    onLogout = {
-                        runBlocking { authRepo.logout() }
-                        isOfflineMode = false
-                        navController.navigate("login") {
-                            popUpTo(0) { inclusive = true }
+            composable("recovery_codes") {
+                RecoveryCodesScreen(
+                    recoveryCodes = tempRecoveryCodes,
+                    userRole = tempUserRole,
+                    onNavigateToHome = { route ->
+                        runBlocking {
+                            authRepo.getCurrentUser().onSuccess { user ->
+                                currentUserName = user.name
+                                currentUserEmail = user.email
+                                currentUserRole = user.role
+                            }
+                        }
+                        appLockManager.onInteractiveAuthenticationCompleted()
+                        navController.navigate(route) {
+                            popUpTo("recovery_codes") { inclusive = true }
                         }
                     }
                 )
             }
-        }
 
-        // Clients Routes
-        composable("clients") {
-            val isAdmin = currentUserRole == UserRole.ADMIN
-            val viewModel = remember { ClientsViewModel(clientRepo, isAdmin) }
-            ClientsScreen(
-                viewModel = viewModel,
-                isAdmin = isAdmin,
-                onNavigateBack = { navController.popBackStack() },
-                onNavigateToDetail = { clientId -> navController.navigate("clients/$clientId") },
-                onNavigateToCreate = { navController.navigate("clients/new") }
-            )
-        }
-
-        composable(
-            route = "clients/{id}",
-            arguments = listOf(navArgument("id") { type = NavType.StringType })
-        ) { backStackEntry ->
-            val clientId = backStackEntry.arguments?.getString("id") ?: ""
-            val canEdit = currentUserRole == UserRole.ADMIN || currentUserRole == UserRole.VENDEDOR
-            val canManageStatus = currentUserRole == UserRole.ADMIN
-            val viewModel = remember { ClientDetailViewModel(clientRepo, clientId) }
-            ClientDetailScreen(
-                viewModel = viewModel,
-                canEdit = canEdit,
-                canManageStatus = canManageStatus,
-                onNavigateBack = { navController.popBackStack() },
-                onNavigateToEdit = { id ->
-                    if (canEdit) {
-                        navController.navigate("clients/$id/edit")
+            composable(
+                route = "two_factor_verify/{token}",
+                arguments = listOf(navArgument("token") { type = NavType.StringType })
+            ) { backStackEntry ->
+                val token = backStackEntry.arguments?.getString("token") ?: ""
+                val viewModel = remember { TwoFactorVerifyViewModel(authRepo, token) }
+                TwoFactorVerifyScreen(
+                    viewModel = viewModel,
+                    onVerified = { route ->
+                        runBlocking {
+                            authRepo.getCurrentUser().onSuccess { user ->
+                                currentUserName = user.name
+                                currentUserEmail = user.email
+                                currentUserRole = user.role
+                            }
+                        }
+                        appLockManager.onInteractiveAuthenticationCompleted()
+                        navController.navigate(route) {
+                            popUpTo("login") { inclusive = true }
+                        }
+                    },
+                    onNavigateToRecovery = {
+                        navController.navigate("two_factor_recovery/$token")
+                    },
+                    onBackToLogin = {
+                        navController.navigate("login") {
+                            popUpTo("login") { inclusive = true }
+                        }
                     }
-                }
-            )
-        }
+                )
+            }
 
-        composable("clients/new") {
-            val viewModel = remember { ClientFormViewModel(clientRepo, null, canEdit = true) }
-            ClientFormScreen(
-                viewModel = viewModel,
-                isEditing = false,
-                onNavigateBack = { navController.popBackStack() },
-                onSaveSuccess = { navController.popBackStack() }
-            )
-        }
+            composable(
+                route = "two_factor_recovery/{token}",
+                arguments = listOf(navArgument("token") { type = NavType.StringType })
+            ) { backStackEntry ->
+                val token = backStackEntry.arguments?.getString("token") ?: ""
+                val viewModel = remember { TwoFactorRecoveryViewModel(authRepo, token) }
+                TwoFactorRecoveryScreen(
+                    viewModel = viewModel,
+                    onRecovered = { route ->
+                        runBlocking {
+                            authRepo.getCurrentUser().onSuccess { user ->
+                                currentUserName = user.name
+                                currentUserEmail = user.email
+                                currentUserRole = user.role
+                            }
+                        }
+                        appLockManager.onInteractiveAuthenticationCompleted()
+                        navController.navigate(route) {
+                            popUpTo("login") { inclusive = true }
+                        }
+                    },
+                    onBackToVerify = {
+                        navController.popBackStack()
+                    }
+                )
+            }
 
-        composable(
-            route = "clients/{id}/edit",
-            arguments = listOf(navArgument("id") { type = NavType.StringType })
-        ) { backStackEntry ->
-            val clientId = backStackEntry.arguments?.getString("id") ?: ""
-            val canEdit = currentUserRole == UserRole.ADMIN || currentUserRole == UserRole.VENDEDOR
-            if (!canEdit) {
-                LaunchedEffect(Unit) {
-                    navController.popBackStack()
+            composable("admin_home") {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    ConnectionStatusBanner(isOffline = isOfflineMode, lastValidationTime = lastValidationTimeStr)
+                    InicioAdministradorScreen(
+                        userName = currentUserName.ifBlank { "Administrador" },
+                        userEmail = currentUserEmail.ifBlank { "admin@yungasdistribuidora.cc" },
+                        onNavigateToClients = { navController.navigate("clients") },
+                        onLogout = {
+                            runBlocking { authRepo.logout() }
+                            appLockManager.clear()
+                            isOfflineMode = false
+                            navController.navigate("login") {
+                                popUpTo(0) { inclusive = true }
+                            }
+                        }
+                    )
                 }
-            } else {
-                val viewModel = remember { ClientFormViewModel(clientRepo, clientId, canEdit = true) }
+            }
+
+            composable("vendor_home") {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    ConnectionStatusBanner(isOffline = isOfflineMode, lastValidationTime = lastValidationTimeStr)
+                    InicioVendedorScreen(
+                        userName = currentUserName.ifBlank { "Vendedor" },
+                        userEmail = currentUserEmail.ifBlank { "vendedor@yungasdistribuidora.cc" },
+                        onNavigateToClients = { navController.navigate("clients") },
+                        onLogout = {
+                            runBlocking { authRepo.logout() }
+                            appLockManager.clear()
+                            isOfflineMode = false
+                            navController.navigate("login") {
+                                popUpTo(0) { inclusive = true }
+                            }
+                        }
+                    )
+                }
+            }
+
+            composable("role_not_available") {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    ConnectionStatusBanner(isOffline = isOfflineMode, lastValidationTime = lastValidationTimeStr)
+                    RolNoDisponibleScreen(
+                        onLogout = {
+                            runBlocking { authRepo.logout() }
+                            appLockManager.clear()
+                            isOfflineMode = false
+                            navController.navigate("login") {
+                                popUpTo(0) { inclusive = true }
+                            }
+                        }
+                    )
+                }
+            }
+
+            // Clients Routes
+            composable("clients") {
+                val isAdmin = currentUserRole == UserRole.ADMIN
+                val viewModel = remember { ClientsViewModel(clientRepo, isAdmin) }
+                ClientsScreen(
+                    viewModel = viewModel,
+                    isAdmin = isAdmin,
+                    onNavigateBack = { navController.popBackStack() },
+                    onNavigateToDetail = { clientId -> navController.navigate("clients/$clientId") },
+                    onNavigateToCreate = { navController.navigate("clients/new") }
+                )
+            }
+
+            composable(
+                route = "clients/{id}",
+                arguments = listOf(navArgument("id") { type = NavType.StringType })
+            ) { backStackEntry ->
+                val clientId = backStackEntry.arguments?.getString("id") ?: ""
+                val canEdit = currentUserRole == UserRole.ADMIN || currentUserRole == UserRole.VENDEDOR
+                val canManageStatus = currentUserRole == UserRole.ADMIN
+                val viewModel = remember { ClientDetailViewModel(clientRepo, clientId) }
+                ClientDetailScreen(
+                    viewModel = viewModel,
+                    canEdit = canEdit,
+                    canManageStatus = canManageStatus,
+                    onNavigateBack = { navController.popBackStack() },
+                    onNavigateToEdit = { id ->
+                        if (canEdit) {
+                            navController.navigate("clients/$id/edit")
+                        }
+                    }
+                )
+            }
+
+            composable("clients/new") {
+                val viewModel = remember { ClientFormViewModel(clientRepo, null, canEdit = true) }
                 ClientFormScreen(
                     viewModel = viewModel,
-                    isEditing = true,
+                    isEditing = false,
                     onNavigateBack = { navController.popBackStack() },
                     onSaveSuccess = { navController.popBackStack() }
                 )
             }
+
+            composable(
+                route = "clients/{id}/edit",
+                arguments = listOf(navArgument("id") { type = NavType.StringType })
+            ) { backStackEntry ->
+                val clientId = backStackEntry.arguments?.getString("id") ?: ""
+                val canEdit = currentUserRole == UserRole.ADMIN || currentUserRole == UserRole.VENDEDOR
+                if (!canEdit) {
+                    LaunchedEffect(Unit) {
+                        navController.popBackStack()
+                    }
+                } else {
+                    val viewModel = remember { ClientFormViewModel(clientRepo, clientId, canEdit = true) }
+                    ClientFormScreen(
+                        viewModel = viewModel,
+                        isEditing = true,
+                        onNavigateBack = { navController.popBackStack() },
+                        onSaveSuccess = { navController.popBackStack() }
+                    )
+                }
+            }
+        }
+
+        if (activity != null && (lockState is AppLockState.Locked || lockState is AppLockState.Authenticating || lockState is AppLockState.Error)) {
+            val userName = remember { offlineSessionManager.getSession()?.name }
+            AppUnlockScreen(
+                activity = activity,
+                biometricAuthManager = biometricAuthManager,
+                appLockManager = appLockManager,
+                userName = userName,
+                onLogout = {
+                    authRepo.clearLocalSession()
+                    appLockManager.clear()
+                    navController.navigate("login") {
+                        popUpTo(0) { inclusive = true }
+                    }
+                }
+            )
         }
     }
 }

@@ -16,14 +16,16 @@ class AppLockManager(
 
     private var backgroundTimestamp: Long = 0L
     var isBiometricPromptActive: Boolean = false
+    var lockGeneration: Long = 0L
+        private set
 
     fun onAppStopped() {
         val hasSession = authRepository.accessToken != null || offlineSessionManager.getSession() != null
         if (hasSession) {
             backgroundTimestamp = System.currentTimeMillis()
-            // Do not lock if biometric prompt is active or we are currently authenticating
             if (!isBiometricPromptActive && _lockState.value !is AppLockState.Authenticating) {
                 _lockState.value = AppLockState.Locked
+                lockGeneration++
             }
         }
     }
@@ -35,6 +37,20 @@ class AppLockManager(
         }
     }
 
+    fun requireUnlockAfterSessionRestore() {
+        val hasSession = authRepository.accessToken != null || offlineSessionManager.getSession() != null
+        if (hasSession) {
+            _lockState.value = AppLockState.Locked
+            lockGeneration++
+            isBiometricPromptActive = false
+        }
+    }
+
+    fun onInteractiveAuthenticationCompleted() {
+        _lockState.value = AppLockState.Unlocked
+        isBiometricPromptActive = false
+    }
+
     fun setUnlocked() {
         _lockState.value = AppLockState.Unlocked
         isBiometricPromptActive = false
@@ -42,6 +58,8 @@ class AppLockManager(
 
     fun setLocked() {
         _lockState.value = AppLockState.Locked
+        lockGeneration++
+        isBiometricPromptActive = false
     }
 
     fun setAuthenticating(authenticating: Boolean) {
@@ -58,5 +76,6 @@ class AppLockManager(
         _lockState.value = AppLockState.NotRequired
         backgroundTimestamp = 0L
         isBiometricPromptActive = false
+        lockGeneration = 0L
     }
 }

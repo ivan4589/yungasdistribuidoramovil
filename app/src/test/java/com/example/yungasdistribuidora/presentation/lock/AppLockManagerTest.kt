@@ -24,8 +24,10 @@ class AppLockManagerTest {
         every { authRepository.accessToken } returns "some-token"
         every { offlineSessionManager.getSession() } returns null
 
+        val genBefore = appLockManager.lockGeneration
         appLockManager.onAppStopped()
         assertTrue(appLockManager.lockState.value is AppLockState.Locked)
+        assertEquals(genBefore + 1, appLockManager.lockGeneration)
     }
 
     @Test
@@ -35,6 +37,19 @@ class AppLockManagerTest {
 
         appLockManager.onAppStopped()
         assertTrue(appLockManager.lockState.value is AppLockState.NotRequired)
+    }
+
+    @Test
+    fun testRequireUnlockAfterSessionRestoreSetsLocked() {
+        every { authRepository.accessToken } returns "token"
+        appLockManager.requireUnlockAfterSessionRestore()
+        assertTrue(appLockManager.lockState.value is AppLockState.Locked)
+    }
+
+    @Test
+    fun testOnInteractiveAuthenticationCompletedSetsUnlocked() {
+        appLockManager.onInteractiveAuthenticationCompleted()
+        assertTrue(appLockManager.lockState.value is AppLockState.Unlocked)
     }
 
     @Test
@@ -48,5 +63,6 @@ class AppLockManagerTest {
         appLockManager.setLocked()
         appLockManager.clear()
         assertTrue(appLockManager.lockState.value is AppLockState.NotRequired)
+        assertEquals(0L, appLockManager.lockGeneration)
     }
 }

@@ -1,6 +1,7 @@
 package com.example.yungasdistribuidora
 
 import android.app.Application
+import androidx.lifecycle.ProcessLifecycleOwner
 import com.example.yungasdistribuidora.data.local.database.AppDatabase
 import com.example.yungasdistribuidora.data.local.session.OfflineSessionManager
 import com.example.yungasdistribuidora.data.local.session.SecurePersistentCookieJar
@@ -12,6 +13,10 @@ import com.example.yungasdistribuidora.data.repository.AuthRepository
 import com.example.yungasdistribuidora.data.repository.AuthRepositoryImpl
 import com.example.yungasdistribuidora.domain.repository.ClientRepository
 import com.example.yungasdistribuidora.data.repository.ClientRepositoryImpl
+import com.example.yungasdistribuidora.presentation.lock.AppLifecycleObserver
+import com.example.yungasdistribuidora.presentation.lock.AppLockManager
+import com.example.yungasdistribuidora.util.BiometricAuthManager
+import com.example.yungasdistribuidora.util.BiometricAuthManagerImpl
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -42,6 +47,12 @@ class YungasApplication : Application() {
         private set
 
     lateinit var clientRepository: ClientRepository
+        private set
+
+    lateinit var appLockManager: AppLockManager
+        private set
+
+    lateinit var biometricAuthManager: BiometricAuthManager
         private set
 
     override fun onCreate() {
@@ -85,6 +96,10 @@ class YungasApplication : Application() {
             database.locationDao(),
             this
         )
+
+        appLockManager = AppLockManager(authRepository, offlineSessionManager)
+        biometricAuthManager = BiometricAuthManagerImpl(this)
+        ProcessLifecycleOwner.get().lifecycle.addObserver(AppLifecycleObserver(appLockManager))
     }
 
     companion object {

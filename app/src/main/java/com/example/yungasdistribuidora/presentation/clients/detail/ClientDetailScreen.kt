@@ -21,7 +21,8 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun ClientDetailScreen(
     viewModel: ClientDetailViewModel,
-    isAdmin: Boolean,
+    canEdit: Boolean,
+    canManageStatus: Boolean,
     onNavigateBack: () -> Unit,
     onNavigateToEdit: (String) -> Unit
 ) {
@@ -58,7 +59,7 @@ fun ClientDetailScreen(
                     }
                 },
                 actions = {
-                    if (isAdmin && client != null) {
+                    if (canEdit && client != null) {
                         IconButton(onClick = { onNavigateToEdit(client!!.id) }) {
                             Icon(Icons.Default.Edit, contentDescription = "Editar")
                         }
@@ -146,8 +147,8 @@ fun ClientDetailScreen(
                     }
                 }
 
-                // Admin Deactivate / Reactivate actions
-                if (isAdmin) {
+                // Status Management actions (Admin only)
+                if (canManageStatus) {
                     Spacer(modifier = Modifier.height(8.dp))
                     if (c.isActive) {
                         Button(

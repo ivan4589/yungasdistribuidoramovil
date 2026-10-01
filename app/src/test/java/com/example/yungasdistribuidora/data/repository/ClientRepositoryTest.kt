@@ -113,4 +113,33 @@ class ClientRepositoryTest {
         assertTrue(result.isFailure)
         assertEquals("Ya existe un cliente activo con el mismo teléfono", result.exceptionOrNull()?.message)
     }
+
+    @Test
+    fun testUpdateClientSuccessByVendorOrAdmin() = runBlocking {
+        val jsonResponse = """
+            {
+              "id": "cuid-1",
+              "fullName": "Tienda Actualizada",
+              "alias": "Don Mario",
+              "type": "NORMAL",
+              "locationId": "loc-1",
+              "locationName": "Chulumani",
+              "phone": "+59171234567",
+              "whatsappConsent": true,
+              "additionalInfo": "Nueva Ref",
+              "isActive": true,
+              "deletedAt": null,
+              "createdAt": "2026-09-29T00:00:00.000Z",
+              "updatedAt": "2026-09-29T00:00:00.000Z"
+            }
+        """.trimIndent()
+
+        mockWebServer.enqueue(MockResponse().setResponseCode(200).setBody(jsonResponse))
+
+        val updateMap = mapOf("fullName" to "Tienda Actualizada")
+        val result = clientRepository.updateClient("cuid-1", updateMap)
+        assertTrue(result.isSuccess)
+        assertEquals("Tienda Actualizada", result.getOrNull()?.fullName)
+        coVerify { clientDao.insertClient(any()) }
+    }
 }

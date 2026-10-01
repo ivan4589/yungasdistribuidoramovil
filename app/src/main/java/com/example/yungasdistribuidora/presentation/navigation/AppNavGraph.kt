@@ -272,14 +272,16 @@ fun AppNavGraph() {
             arguments = listOf(navArgument("id") { type = NavType.StringType })
         ) { backStackEntry ->
             val clientId = backStackEntry.arguments?.getString("id") ?: ""
-            val isAdmin = currentUserRole == UserRole.ADMIN
+            val canEdit = currentUserRole == UserRole.ADMIN || currentUserRole == UserRole.VENDEDOR
+            val canManageStatus = currentUserRole == UserRole.ADMIN
             val viewModel = remember { ClientDetailViewModel(clientRepo, clientId) }
             ClientDetailScreen(
                 viewModel = viewModel,
-                isAdmin = isAdmin,
+                canEdit = canEdit,
+                canManageStatus = canManageStatus,
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateToEdit = { id ->
-                    if (isAdmin) {
+                    if (canEdit) {
                         navController.navigate("clients/$id/edit")
                     }
                 }
@@ -287,7 +289,7 @@ fun AppNavGraph() {
         }
 
         composable("clients/new") {
-            val viewModel = remember { ClientFormViewModel(clientRepo, null) }
+            val viewModel = remember { ClientFormViewModel(clientRepo, null, canEdit = true) }
             ClientFormScreen(
                 viewModel = viewModel,
                 isEditing = false,
@@ -301,14 +303,13 @@ fun AppNavGraph() {
             arguments = listOf(navArgument("id") { type = NavType.StringType })
         ) { backStackEntry ->
             val clientId = backStackEntry.arguments?.getString("id") ?: ""
-            val isAdmin = currentUserRole == UserRole.ADMIN
-            if (!isAdmin) {
-                // Block vendor from editing
+            val canEdit = currentUserRole == UserRole.ADMIN || currentUserRole == UserRole.VENDEDOR
+            if (!canEdit) {
                 LaunchedEffect(Unit) {
                     navController.popBackStack()
                 }
             } else {
-                val viewModel = remember { ClientFormViewModel(clientRepo, clientId) }
+                val viewModel = remember { ClientFormViewModel(clientRepo, clientId, canEdit = true) }
                 ClientFormScreen(
                     viewModel = viewModel,
                     isEditing = true,

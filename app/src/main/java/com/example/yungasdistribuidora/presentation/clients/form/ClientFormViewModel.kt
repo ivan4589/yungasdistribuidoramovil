@@ -12,7 +12,8 @@ import kotlinx.coroutines.launch
 
 class ClientFormViewModel(
     private val clientRepository: ClientRepository,
-    private val clientId: String? = null
+    private val clientId: String? = null,
+    private val canEdit: Boolean = true
 ) : ViewModel() {
 
     var fullName = MutableStateFlow("")
@@ -75,6 +76,11 @@ class ClientFormViewModel(
     }
 
     fun saveClient() {
+        if (clientId != null && !canEdit) {
+            _errorMessage.value = "No tienes permiso para editar clientes."
+            return
+        }
+
         val name = fullName.value.trim()
         if (name.isEmpty()) {
             _errorMessage.value = "El nombre completo es obligatorio"

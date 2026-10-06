@@ -12,6 +12,8 @@ fun InicioAdministradorScreen(
     userName: String,
     userEmail: String,
     onNavigateToClients: () -> Unit,
+    onNavigateToProducts: () -> Unit,
+    onNavigateToNewPresale: () -> Unit,
     onLogout: () -> Unit
 ) {
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -32,6 +34,25 @@ fun InicioAdministradorScreen(
                 modifier = Modifier.fillMaxWidth().height(50.dp)
             ) {
                 Text("Gestión de Clientes")
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Button(
+                onClick = onNavigateToProducts,
+                modifier = Modifier.fillMaxWidth().height(50.dp)
+            ) {
+                Text("Catálogo de Productos")
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Button(
+                onClick = onNavigateToNewPresale,
+                modifier = Modifier.fillMaxWidth().height(50.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
+            ) {
+                Text("Nueva Preventa")
             }
 
             Spacer(modifier = Modifier.height(16.dp))

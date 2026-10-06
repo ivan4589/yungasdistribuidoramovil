@@ -26,6 +26,12 @@ import com.example.yungasdistribuidora.presentation.lock.AppLockState
 import com.example.yungasdistribuidora.presentation.lock.AppUnlockScreen
 import com.example.yungasdistribuidora.presentation.login.LoginScreen
 import com.example.yungasdistribuidora.presentation.login.LoginViewModel
+import com.example.yungasdistribuidora.presentation.presale.NewPresaleScreen
+import com.example.yungasdistribuidora.presentation.presale.NewPresaleViewModel
+import com.example.yungasdistribuidora.presentation.productdetail.ProductDetailScreen
+import com.example.yungasdistribuidora.presentation.productdetail.ProductDetailViewModel
+import com.example.yungasdistribuidora.presentation.products.ProductsScreen
+import com.example.yungasdistribuidora.presentation.products.ProductsViewModel
 import com.example.yungasdistribuidora.presentation.splash.SplashScreen
 import com.example.yungasdistribuidora.presentation.splash.SplashViewModel
 import com.example.yungasdistribuidora.presentation.twofactor.*
@@ -41,6 +47,7 @@ fun AppNavGraph() {
     val app = YungasApplication.instance
     val authRepo = app.authRepository
     val clientRepo = app.clientRepository
+    val productRepo = app.productRepository
     val offlineSessionManager = app.offlineSessionManager
     val appLockManager = app.appLockManager
     val biometricAuthManager = app.biometricAuthManager
@@ -227,6 +234,8 @@ fun AppNavGraph() {
                         userName = currentUserName.ifBlank { "Administrador" },
                         userEmail = currentUserEmail.ifBlank { "admin@yungasdistribuidora.cc" },
                         onNavigateToClients = { navController.navigate("clients") },
+                        onNavigateToProducts = { navController.navigate("products") },
+                        onNavigateToNewPresale = { navController.navigate("new_presale") },
                         onLogout = {
                             runBlocking { authRepo.logout() }
                             appLockManager.clear()
@@ -246,6 +255,8 @@ fun AppNavGraph() {
                         userName = currentUserName.ifBlank { "Vendedor" },
                         userEmail = currentUserEmail.ifBlank { "vendedor@yungasdistribuidora.cc" },
                         onNavigateToClients = { navController.navigate("clients") },
+                        onNavigateToProducts = { navController.navigate("products") },
+                        onNavigateToNewPresale = { navController.navigate("new_presale") },
                         onLogout = {
                             runBlocking { authRepo.logout() }
                             appLockManager.clear()
@@ -335,6 +346,61 @@ fun AppNavGraph() {
                         isEditing = true,
                         onNavigateBack = { navController.popBackStack() },
                         onSaveSuccess = { navController.popBackStack() }
+                    )
+                }
+            }
+
+            // Products / Catalog Routes
+            composable("products") {
+                val canViewCatalog = currentUserRole == UserRole.ADMIN || currentUserRole == UserRole.VENDEDOR
+                if (!canViewCatalog) {
+                    LaunchedEffect(Unit) {
+                        navController.popBackStack()
+                    }
+                } else {
+                    val viewModel = remember { ProductsViewModel(productRepo) }
+                    ProductsScreen(
+                        viewModel = viewModel,
+                        onNavigateBack = { navController.popBackStack() },
+                        onNavigateToDetail = { productId -> navController.navigate("products/$productId") }
+                    )
+                }
+            }
+
+            composable(
+                route = "products/{productId}",
+                arguments = listOf(navArgument("productId") { type = NavType.StringType })
+            ) { backStackEntry ->
+                val productId = backStackEntry.arguments?.getString("productId") ?: ""
+                val canViewCatalog = currentUserRole == UserRole.ADMIN || currentUserRole == UserRole.VENDEDOR
+                if (!canViewCatalog) {
+                    LaunchedEffect(Unit) {
+                        navController.popBackStack()
+                    }
+                } else {
+                    val viewModel = remember { ProductDetailViewModel(productRepo, productId) }
+                    ProductDetailScreen(
+                        viewModel = viewModel,
+                        onNavigateBack = { navController.popBackStack() }
+                    )
+                }
+            }
+
+            // New Presale Route
+            composable("new_presale") {
+                val canCreatePresale = currentUserRole == UserRole.ADMIN || currentUserRole == UserRole.VENDEDOR
+                val isAdmin = currentUserRole == UserRole.ADMIN
+                if (!canCreatePresale) {
+                    LaunchedEffect(Unit) {
+                        navController.popBackStack()
+                    }
+                } else {
+                    val viewModel = remember { NewPresaleViewModel(clientRepo, productRepo, isAdmin) }
+                    NewPresaleScreen(
+                        viewModel = viewModel,
+                        isAdmin = isAdmin,
+                        canCreateClient = true,
+                        onNavigateBack = { navController.popBackStack() }
                     )
                 }
             }

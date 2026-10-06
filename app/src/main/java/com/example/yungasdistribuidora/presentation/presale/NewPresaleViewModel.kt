@@ -2,19 +2,25 @@ package com.example.yungasdistribuidora.presentation.presale
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.yungasdistribuidora.data.remote.dto.SaleResponseDto
 import com.example.yungasdistribuidora.data.remote.dto.client.CreateClientRequest
 import com.example.yungasdistribuidora.domain.model.*
 import com.example.yungasdistribuidora.domain.repository.ClientRepository
+import com.example.yungasdistribuidora.domain.repository.PresaleRepository
 import com.example.yungasdistribuidora.domain.repository.ProductRepository
 import com.example.yungasdistribuidora.domain.usecase.CalculateProductPriceUseCase
+import com.example.yungasdistribuidora.domain.usecase.RegisterPresaleUseCase
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import java.util.*
 
 class NewPresaleViewModel(
     private val clientRepository: ClientRepository,
     private val productRepository: ProductRepository,
+    private val presaleRepository: PresaleRepository,
     private val isAdmin: Boolean = false,
-    private val calculateProductPriceUseCase: CalculateProductPriceUseCase = CalculateProductPriceUseCase()
+    private val calculateProductPriceUseCase: CalculateProductPriceUseCase = CalculateProductPriceUseCase(),
+    private val registerPresaleUseCase: RegisterPresaleUseCase = RegisterPresaleUseCase()
 ) : ViewModel() {
 
     private val _draft = MutableStateFlow(PresaleDraft())
@@ -39,14 +45,30 @@ class NewPresaleViewModel(
     var addQuantityInput = MutableStateFlow("1")
     var addPriceInput = MutableStateFlow("")
 
+    var discountInput = MutableStateFlow("0")
+    var paymentMethodInput = MutableStateFlow("CASH") // CASH, QR, BANK_TRANSFER
+    var paymentReferenceInput = MutableStateFlow("")
+    var dueDateInput = MutableStateFlow("")
+
     private val _isClientFormOpen = MutableStateFlow(false)
     val isClientFormOpen = _isClientFormOpen.asStateFlow()
+
+    private val _isConfirmDialogVisible = MutableStateFlow(false)
+    val isConfirmDialogVisible = _isConfirmDialogVisible.asStateFlow()
+
+    private val _isSubmitting = MutableStateFlow(false)
+    val isSubmitting = _isSubmitting.asStateFlow()
+
+    private val _registeredSale = MutableStateFlow<SaleResponseDto?>(null)
+    val registeredSale = _registeredSale.asStateFlow()
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading = _isLoading.asStateFlow()
 
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage = _errorMessage.asStateFlow()
+
+    private var idempotencyKey: String = UUID.randomUUID().toString()
 
     val filteredClients = combine(_clients, _clientSearchQuery) { list, query ->
         if (query.isBlank()) list
@@ -65,8 +87,16 @@ class NewPresaleViewModel(
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val totalAmount: StateFlow<Double> = _draft.map { d ->
+    val subtotal: StateFlow<Double> = _draft.map { d ->
         d.items.sumOf { it.subtotal }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
+    val totalAmount: StateFlow<Double> = combine(
+        subtotal,
+        discountInput
+    ) { sub, disc ->
+        val discountVal = disc.toDoubleOrNull() ?: 0.0
+        maxOf(sub - discountVal, 0.0)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
     init {
@@ -164,7 +194,6 @@ class NewPresaleViewModel(
         }
         _draft.value = currentDraft.copy(items = newItems)
 
-        // Reset add form
         selectedProductForAdd.value = null
         addQuantityInput.value = "1"
         addPriceInput.value = ""
@@ -199,6 +228,14 @@ class NewPresaleViewModel(
         _isClientFormOpen.value = false
     }
 
+    fun showConfirmDialog() {
+        _isConfirmDialogVisible.value = true
+    }
+
+    fun hideConfirmDialog() {
+        _isConfirmDialogVisible.value = false
+    }
+
     fun createNewClient(
         fullName: String,
         alias: String?,
@@ -227,6 +264,51 @@ class NewPresaleViewModel(
                 _errorMessage.value = it.message ?: "Error al registrar el cliente"
             }
         }
+    }
+
+    fun registerSale() {
+        if (_isSubmitting.value) return
+        val discVal = discountInput.value.toDoubleOrNull() ?: 0.0
+        val validationResult = registerPresaleUseCase.validateAndBuildRequest(
+            draft = _draft.value,
+            isAdmin = isAdmin,
+            discountInput = discVal,
+            paymentMethod = paymentMethodInput.value,
+            paymentReference = paymentReferenceInput.value,
+            dueDateStr = dueDateInput.value
+        )
+
+        if (validationResult.isFailure) {
+            _errorMessage.value = validationResult.exceptionOrNull()?.message ?: "Error de validación"
+            _isConfirmDialogVisible.value = false
+            return
+        }
+
+        val requestDto = validationResult.getOrThrow()
+
+        viewModelScope.launch {
+            _isSubmitting.value = true
+            _isConfirmDialogVisible.value = false
+            _errorMessage.value = null
+
+            val result = presaleRepository.registerSale(idempotencyKey, requestDto)
+            result.onSuccess { saleResponse ->
+                _registeredSale.value = saleResponse
+                // Clear draft and generate new idempotency key on success
+                _draft.value = PresaleDraft()
+                discountInput.value = "0"
+                idempotencyKey = UUID.randomUUID().toString()
+                // Refresh product catalog stock
+                productRepository.refreshCatalog()
+            }.onFailure {
+                _errorMessage.value = it.message ?: "Error al registrar la preventa"
+            }
+            _isSubmitting.value = false
+        }
+    }
+
+    fun resetRegisteredSale() {
+        _registeredSale.value = null
     }
 
     fun clearError() {

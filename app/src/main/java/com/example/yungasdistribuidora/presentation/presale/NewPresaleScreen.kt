@@ -37,13 +37,24 @@ fun NewPresaleScreen(
     val selectedProductForAdd by viewModel.selectedProductForAdd.collectAsState()
     val addQuantityInput by viewModel.addQuantityInput.collectAsState()
     val addPriceInput by viewModel.addPriceInput.collectAsState()
+    val discountInput by viewModel.discountInput.collectAsState()
+    val paymentMethodInput by viewModel.paymentMethodInput.collectAsState()
+    val paymentReferenceInput by viewModel.paymentReferenceInput.collectAsState()
+    val dueDateInput by viewModel.dueDateInput.collectAsState()
+
     val isClientFormOpen by viewModel.isClientFormOpen.collectAsState()
+    val isConfirmDialogVisible by viewModel.isConfirmDialogVisible.collectAsState()
+    val isSubmitting by viewModel.isSubmitting.collectAsState()
+    val registeredSale by viewModel.registeredSale.collectAsState()
+
+    val subtotal by viewModel.subtotal.collectAsState()
     val totalAmount by viewModel.totalAmount.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
 
     var showClientDropdown by remember { mutableStateOf(false) }
     var showProductDropdown by remember { mutableStateOf(false) }
     var editingItem by remember { mutableStateOf<PresaleItem?>(null) }
+    var paymentMethodExpanded by remember { mutableStateOf(false) }
 
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -82,12 +93,14 @@ fun NewPresaleScreen(
                         Text("Items: ${draft.items.size}", style = MaterialTheme.typography.bodySmall)
                     }
                     Button(
-                        onClick = {
-                            // Presale confirmation action placeholder
-                        },
-                        enabled = draft.client != null && draft.items.isNotEmpty()
+                        onClick = { viewModel.showConfirmDialog() },
+                        enabled = draft.client != null && draft.items.isNotEmpty() && !isSubmitting
                     ) {
-                        Text("Confirmar Preventa")
+                        if (isSubmitting) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary)
+                            Spacer(modifier = Modifier.width(8.dp))
+                        }
+                        Text("Registrar Preventa")
                     }
                 }
             }
@@ -98,7 +111,8 @@ fun NewPresaleScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(16.dp),
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // Modality Selector
@@ -115,6 +129,74 @@ fun NewPresaleScreen(
                         modifier = Modifier.weight(1f)
                     )
                 }
+            }
+
+            // Conditional fields based on Modality
+            if (draft.modality == SaleModality.CONTADO) {
+                Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Detalles de Contado", style = MaterialTheme.typography.titleSmall)
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            OutlinedButton(onClick = { paymentMethodExpanded = true }, modifier = Modifier.fillMaxWidth()) {
+                                Text("Método de pago: $paymentMethodInput")
+                            }
+                            DropdownMenu(expanded = paymentMethodExpanded, onDismissRequest = { paymentMethodExpanded = false }) {
+                                listOf("CASH", "QR", "BANK_TRANSFER").forEach { method ->
+                                    DropdownMenuItem(
+                                        text = { Text(method) },
+                                        onClick = { viewModel.paymentMethodInput.value = method; paymentMethodExpanded = false }
+                                    )
+                                }
+                            }
+                        }
+                        OutlinedTextField(
+                            value = paymentReferenceInput,
+                            onValueChange = { viewModel.paymentReferenceInput.value = it },
+                            label = { Text("Referencia de pago (Opcional)") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+                    }
+                }
+            } else if (draft.modality == SaleModality.CREDITO) {
+                Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Detalles de Crédito", style = MaterialTheme.typography.titleSmall)
+                        OutlinedTextField(
+                            value = dueDateInput,
+                            onValueChange = { viewModel.dueDateInput.value = it },
+                            label = { Text("Fecha de Vencimiento (YYYY-MM-DD) *") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            placeholder = { Text("Ej: 2026-10-05") }
+                        )
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            OutlinedButton(onClick = { paymentMethodExpanded = true }, modifier = Modifier.fillMaxWidth()) {
+                                Text("Método pago inicial (Opcional): $paymentMethodInput")
+                            }
+                            DropdownMenu(expanded = paymentMethodExpanded, onDismissRequest = { paymentMethodExpanded = false }) {
+                                listOf("", "CASH", "QR", "BANK_TRANSFER").forEach { method ->
+                                    DropdownMenuItem(
+                                        text = { Text(method.ifBlank { "Ninguno" }) },
+                                        onClick = { viewModel.paymentMethodInput.value = method; paymentMethodExpanded = false }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Admin Discount Input
+            if (isAdmin) {
+                OutlinedTextField(
+                    value = discountInput,
+                    onValueChange = { viewModel.discountInput.value = it },
+                    label = { Text("Descuento Global (Bs.)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    singleLine = true
+                )
             }
 
             // Client Selection Row
@@ -138,7 +220,7 @@ fun NewPresaleScreen(
                 }
             }
 
-            // Client Dropdown Dialog / Menu
+            // Client Dropdown Dialog
             if (showClientDropdown) {
                 AlertDialog(
                     onDismissRequest = { showClientDropdown = false },
@@ -214,7 +296,6 @@ fun NewPresaleScreen(
                 ) {
                     Text("Agregar Producto al Pedido", style = MaterialTheme.typography.titleSmall)
 
-                    // Product Selector Field
                     OutlinedButton(
                         onClick = { showProductDropdown = true },
                         modifier = Modifier.fillMaxWidth()
@@ -227,7 +308,6 @@ fun NewPresaleScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Quantity Field
                         OutlinedTextField(
                             value = addQuantityInput,
                             onValueChange = viewModel::updateAddQuantity,
@@ -237,7 +317,6 @@ fun NewPresaleScreen(
                             singleLine = true
                         )
 
-                        // Unit Price Field
                         OutlinedTextField(
                             value = addPriceInput,
                             onValueChange = { viewModel.addPriceInput.value = it },
@@ -248,7 +327,6 @@ fun NewPresaleScreen(
                             singleLine = true
                         )
 
-                        // Add Button
                         Button(
                             onClick = { viewModel.addSelectedProductToPresale() },
                             enabled = selectedProductForAdd != null
@@ -323,19 +401,17 @@ fun NewPresaleScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f),
+                        .height(120.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text("No hay productos agregados en la preventa", color = MaterialTheme.colorScheme.outline)
                 }
             } else {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(draft.items, key = { it.product.id }) { item ->
+                    draft.items.forEach { item ->
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -370,7 +446,7 @@ fun NewPresaleScreen(
                 }
             }
 
-            // Observations (independent of client form)
+            // Observations
             OutlinedTextField(
                 value = draft.observations,
                 onValueChange = viewModel::setObservations,
@@ -381,7 +457,58 @@ fun NewPresaleScreen(
         }
     }
 
-    // Edit Item Dialog (Quantity & Price editing via keyboard)
+    // Confirmation Dialog before registering
+    if (isConfirmDialogVisible) {
+        AlertDialog(
+            onDismissRequest = { viewModel.hideConfirmDialog() },
+            title = { Text("¿Registrar esta preventa?") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Cliente: ${draft.client?.fullName ?: "N/D"}")
+                    Text("Productos: ${draft.items.size} ítems")
+                    Text("Total: Bs. ${"%.2f".format(totalAmount)}")
+                    Text("Modalidad: ${draft.modality.displayName}")
+                }
+            },
+            confirmButton = {
+                Button(onClick = { viewModel.registerSale() }) {
+                    Text("Registrar")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.hideConfirmDialog() }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
+
+    // Success Result Dialog
+    registeredSale?.let { sale ->
+        AlertDialog(
+            onDismissRequest = { viewModel.resetRegisteredSale(); onNavigateBack() },
+            title = { Text("Preventa registrada correctamente") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("N.º: ${sale.saleNumber}")
+                    Text("Total: Bs. ${"%.2f".format(sale.total)}")
+                    Text("Estado: ${sale.status}")
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.resetRegisteredSale()
+                        onNavigateBack()
+                    }
+                ) {
+                    Text("Volver al inicio")
+                }
+            }
+        )
+    }
+
+    // Edit Item Dialog
     editingItem?.let { item ->
         var qtyText by remember { mutableStateOf(item.quantity.toInt().toString()) }
         var priceText by remember { mutableStateOf(item.unitPrice.toString()) }

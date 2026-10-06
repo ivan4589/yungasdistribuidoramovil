@@ -48,6 +48,7 @@ fun AppNavGraph() {
     val authRepo = app.authRepository
     val clientRepo = app.clientRepository
     val productRepo = app.productRepository
+    val presaleRepo = app.presaleRepository
     val offlineSessionManager = app.offlineSessionManager
     val appLockManager = app.appLockManager
     val biometricAuthManager = app.biometricAuthManager
@@ -395,7 +396,7 @@ fun AppNavGraph() {
                         navController.popBackStack()
                     }
                 } else {
-                    val viewModel = remember { NewPresaleViewModel(clientRepo, productRepo, isAdmin) }
+                    val viewModel = remember { NewPresaleViewModel(clientRepo, productRepo, presaleRepo, isAdmin) }
                     NewPresaleScreen(
                         viewModel = viewModel,
                         isAdmin = isAdmin,

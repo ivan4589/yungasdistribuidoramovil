@@ -10,12 +10,15 @@ import com.example.yungasdistribuidora.data.remote.api.CategoryApi
 import com.example.yungasdistribuidora.data.remote.api.ClientApi
 import com.example.yungasdistribuidora.data.remote.api.LocationApi
 import com.example.yungasdistribuidora.data.remote.api.ProductApi
+import com.example.yungasdistribuidora.data.remote.api.SalesApi
 import com.example.yungasdistribuidora.data.remote.api.SubCategoryApi
 import com.example.yungasdistribuidora.data.remote.interceptor.AuthInterceptor
 import com.example.yungasdistribuidora.data.repository.AuthRepository
 import com.example.yungasdistribuidora.data.repository.AuthRepositoryImpl
 import com.example.yungasdistribuidora.domain.repository.ClientRepository
 import com.example.yungasdistribuidora.data.repository.ClientRepositoryImpl
+import com.example.yungasdistribuidora.domain.repository.PresaleRepository
+import com.example.yungasdistribuidora.data.repository.PresaleRepositoryImpl
 import com.example.yungasdistribuidora.domain.repository.ProductRepository
 import com.example.yungasdistribuidora.data.repository.ProductRepositoryImpl
 import com.example.yungasdistribuidora.presentation.lock.AppLifecycleObserver
@@ -64,6 +67,12 @@ class YungasApplication : Application() {
         private set
 
     lateinit var productRepository: ProductRepository
+        private set
+
+    lateinit var salesApi: SalesApi
+        private set
+
+    lateinit var presaleRepository: PresaleRepository
         private set
 
     lateinit var appLockManager: AppLockManager
@@ -123,6 +132,9 @@ class YungasApplication : Application() {
             subCategoryApi,
             database
         )
+
+        salesApi = retrofit.create(SalesApi::class.java)
+        presaleRepository = PresaleRepositoryImpl(salesApi)
 
         appLockManager = AppLockManager(authRepository, offlineSessionManager)
         biometricAuthManager = BiometricAuthManagerImpl(this)

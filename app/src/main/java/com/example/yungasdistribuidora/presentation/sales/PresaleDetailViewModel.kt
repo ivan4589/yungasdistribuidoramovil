@@ -1,5 +1,6 @@
 package com.example.yungasdistribuidora.presentation.sales
 
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import androidx.core.content.FileProvider
@@ -109,12 +110,16 @@ class PresaleDetailViewModel(
                         setDataAndType(uri, "application/pdf")
                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     }
-                    context.startActivity(Intent.createChooser(intent, "Ver PDF de preventa"))
+                    try {
+                        context.startActivity(Intent.createChooser(intent, "Ver PDF de preventa"))
+                    } catch (e: ActivityNotFoundException) {
+                        _errorMessage.value = "No se encontró ninguna aplicación para ver archivos PDF en este dispositivo."
+                    }
                 } catch (e: Exception) {
                     _errorMessage.value = "Error al abrir el PDF: ${e.message}"
                 }
-            }.onFailure {
-                _errorMessage.value = it.message ?: "Error al descargar el PDF"
+            }.onFailure { err ->
+                _errorMessage.value = "Fallo al descargar PDF: ${err.message}"
             }
             _isLoading.value = false
         }

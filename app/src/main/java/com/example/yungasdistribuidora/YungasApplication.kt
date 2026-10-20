@@ -5,22 +5,10 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import com.example.yungasdistribuidora.data.local.database.AppDatabase
 import com.example.yungasdistribuidora.data.local.session.OfflineSessionManager
 import com.example.yungasdistribuidora.data.local.session.SecurePersistentCookieJar
-import com.example.yungasdistribuidora.data.remote.api.AuthApi
-import com.example.yungasdistribuidora.data.remote.api.CategoryApi
-import com.example.yungasdistribuidora.data.remote.api.ClientApi
-import com.example.yungasdistribuidora.data.remote.api.LocationApi
-import com.example.yungasdistribuidora.data.remote.api.ProductApi
-import com.example.yungasdistribuidora.data.remote.api.SalesApi
-import com.example.yungasdistribuidora.data.remote.api.SubCategoryApi
+import com.example.yungasdistribuidora.data.remote.api.*
 import com.example.yungasdistribuidora.data.remote.interceptor.AuthInterceptor
-import com.example.yungasdistribuidora.data.repository.AuthRepository
-import com.example.yungasdistribuidora.data.repository.AuthRepositoryImpl
-import com.example.yungasdistribuidora.domain.repository.ClientRepository
-import com.example.yungasdistribuidora.data.repository.ClientRepositoryImpl
-import com.example.yungasdistribuidora.domain.repository.PresaleRepository
-import com.example.yungasdistribuidora.data.repository.PresaleRepositoryImpl
-import com.example.yungasdistribuidora.domain.repository.ProductRepository
-import com.example.yungasdistribuidora.data.repository.ProductRepositoryImpl
+import com.example.yungasdistribuidora.data.repository.*
+import com.example.yungasdistribuidora.domain.repository.*
 import com.example.yungasdistribuidora.presentation.lock.AppLifecycleObserver
 import com.example.yungasdistribuidora.presentation.lock.AppLockManager
 import com.example.yungasdistribuidora.util.BiometricAuthManager
@@ -69,7 +57,16 @@ class YungasApplication : Application() {
     lateinit var productRepository: ProductRepository
         private set
 
+    lateinit var bonusRulesApi: BonusRulesApi
+        private set
+
+    lateinit var bonusRuleRepository: BonusRuleRepository
+        private set
+
     lateinit var salesApi: SalesApi
+        private set
+
+    lateinit var salesRepository: SalesRepository
         private set
 
     lateinit var presaleRepository: PresaleRepository
@@ -133,8 +130,12 @@ class YungasApplication : Application() {
             database
         )
 
+        bonusRulesApi = retrofit.create(BonusRulesApi::class.java)
+        bonusRuleRepository = BonusRuleRepositoryImpl(bonusRulesApi, database.bonusRuleDao())
+
         salesApi = retrofit.create(SalesApi::class.java)
-        presaleRepository = PresaleRepositoryImpl(salesApi)
+        salesRepository = SalesRepositoryImpl(salesApi, database.saleDao())
+        presaleRepository = salesRepository
 
         appLockManager = AppLockManager(authRepository, offlineSessionManager)
         biometricAuthManager = BiometricAuthManagerImpl(this)

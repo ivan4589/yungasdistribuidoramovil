@@ -2,12 +2,16 @@ package com.example.yungasdistribuidora.presentation.presale
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.yungasdistribuidora.data.local.bonus.BonusRuleEntity
+import com.example.yungasdistribuidora.data.remote.dto.BonusAllocationRequestDto
 import com.example.yungasdistribuidora.data.remote.dto.SaleResponseDto
 import com.example.yungasdistribuidora.data.remote.dto.client.CreateClientRequest
 import com.example.yungasdistribuidora.domain.model.*
+import com.example.yungasdistribuidora.domain.repository.BonusRuleRepository
 import com.example.yungasdistribuidora.domain.repository.ClientRepository
 import com.example.yungasdistribuidora.domain.repository.PresaleRepository
 import com.example.yungasdistribuidora.domain.repository.ProductRepository
+import com.example.yungasdistribuidora.domain.usecase.CalculateBonusUseCase
 import com.example.yungasdistribuidora.domain.usecase.CalculateProductPriceUseCase
 import com.example.yungasdistribuidora.domain.usecase.RegisterPresaleUseCase
 import kotlinx.coroutines.flow.*
@@ -18,8 +22,10 @@ class NewPresaleViewModel(
     private val clientRepository: ClientRepository,
     private val productRepository: ProductRepository,
     private val presaleRepository: PresaleRepository,
+    private val bonusRuleRepository: BonusRuleRepository,
     private val isAdmin: Boolean = false,
     private val calculateProductPriceUseCase: CalculateProductPriceUseCase = CalculateProductPriceUseCase(),
+    private val calculateBonusUseCase: CalculateBonusUseCase = CalculateBonusUseCase(),
     private val registerPresaleUseCase: RegisterPresaleUseCase = RegisterPresaleUseCase()
 ) : ViewModel() {
 
@@ -35,6 +41,16 @@ class NewPresaleViewModel(
     private val _locations = MutableStateFlow<List<Location>>(emptyList())
     val locations = _locations.asStateFlow()
 
+    private val _bonusRules = MutableStateFlow<List<BonusRuleEntity>>(emptyList())
+    val bonusRules = _bonusRules.asStateFlow()
+
+    val earnedBonuses: StateFlow<Map<String, Int>> = combine(_bonusRules, _draft) { rules, draft ->
+        calculateBonusUseCase.calculate(rules, draft.items)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    private val _allocatedBonuses = MutableStateFlow<Map<String, Int>>(emptyMap())
+    val allocatedBonuses = _allocatedBonuses.asStateFlow()
+
     private val _clientSearchQuery = MutableStateFlow("")
     val clientSearchQuery = _clientSearchQuery.asStateFlow()
 
@@ -46,7 +62,7 @@ class NewPresaleViewModel(
     var addPriceInput = MutableStateFlow("")
 
     var discountInput = MutableStateFlow("0")
-    var paymentMethodInput = MutableStateFlow("CASH") // CASH, QR, BANK_TRANSFER
+    var paymentMethodInput = MutableStateFlow("CASH")
     var paymentReferenceInput = MutableStateFlow("")
     var dueDateInput = MutableStateFlow("")
 
@@ -121,6 +137,11 @@ class NewPresaleViewModel(
                     _locations.value = it
                 }
             }
+            launch {
+                bonusRuleRepository.getBonusRules().onSuccess {
+                    _bonusRules.value = it
+                }
+            }
             _isLoading.value = false
         }
     }
@@ -136,7 +157,7 @@ class NewPresaleViewModel(
     fun selectClient(client: Client?) {
         val currentDraft = _draft.value
         val updatedItems = currentDraft.items.map { item ->
-            val newPrice = calculateProductPriceUseCase(item.product, client?.type?.name, item.quantity)
+            val newPrice = calculateProductPriceUseCase(item.product, client?.type?.name, item.quantity.toDouble())
             item.copy(unitPrice = newPrice)
         }
         _draft.value = currentDraft.copy(client = client, items = updatedItems)
@@ -154,8 +175,8 @@ class NewPresaleViewModel(
         selectedProductForAdd.value = product
         if (product != null) {
             val clientType = _draft.value.client?.type?.name
-            val qty = addQuantityInput.value.toDoubleOrNull() ?: 1.0
-            val calculatedPrice = calculateProductPriceUseCase(product, clientType, qty)
+            val qty = addQuantityInput.value.toIntOrNull() ?: 1
+            val calculatedPrice = calculateProductPriceUseCase(product, clientType, qty.toDouble())
             addPriceInput.value = calculatedPrice.toString()
         } else {
             addPriceInput.value = ""
@@ -167,18 +188,19 @@ class NewPresaleViewModel(
         val prod = selectedProductForAdd.value
         if (prod != null) {
             val clientType = _draft.value.client?.type?.name
-            val qty = qtyStr.toDoubleOrNull() ?: 1.0
-            val calculatedPrice = calculateProductPriceUseCase(prod, clientType, qty)
+            val qty = qtyStr.toIntOrNull() ?: 1
+            val calculatedPrice = calculateProductPriceUseCase(prod, clientType, qty.toDouble())
             addPriceInput.value = calculatedPrice.toString()
         }
     }
 
     fun addSelectedProductToPresale() {
         val prod = selectedProductForAdd.value ?: return
-        val qty = addQuantityInput.value.toDoubleOrNull() ?: 1.0
+        val qty = addQuantityInput.value.toIntOrNull() ?: 1
+        if (qty < 1) return
         val price = addPriceInput.value.toDoubleOrNull() ?: prod.priceNormal
 
-        val finalPrice = if (isAdmin) price else calculateProductPriceUseCase(prod, _draft.value.client?.type?.name, qty)
+        val finalPrice = if (isAdmin) price else calculateProductPriceUseCase(prod, _draft.value.client?.type?.name, qty.toDouble())
 
         val currentDraft = _draft.value
         val existingItemIndex = currentDraft.items.indexOfFirst { it.product.id == prod.id }
@@ -186,7 +208,7 @@ class NewPresaleViewModel(
             currentDraft.items.toMutableList().apply {
                 val existing = this[existingItemIndex]
                 val newQty = existing.quantity + qty
-                val updatedPrice = if (isAdmin) finalPrice else calculateProductPriceUseCase(prod, currentDraft.client?.type?.name, newQty)
+                val updatedPrice = if (isAdmin) finalPrice else calculateProductPriceUseCase(prod, currentDraft.client?.type?.name, newQty.toDouble())
                 this[existingItemIndex] = existing.copy(quantity = newQty, unitPrice = updatedPrice)
             }
         } else {
@@ -199,7 +221,7 @@ class NewPresaleViewModel(
         addPriceInput.value = ""
     }
 
-    fun updateItemDetails(productId: String, quantity: Double, unitPrice: Double) {
+    fun updateItemDetails(productId: String, quantity: Int, unitPrice: Double) {
         if (quantity <= 0) {
             removeItem(productId)
             return
@@ -208,7 +230,7 @@ class NewPresaleViewModel(
         val newItems = currentDraft.items.map { item ->
             if (item.product.id == productId) {
                 val finalPrice = if (isAdmin) unitPrice.coerceAtLeast(0.0) else item.unitPrice
-                item.copy(quantity = quantity.coerceAtLeast(1.0), unitPrice = finalPrice)
+                item.copy(quantity = quantity.coerceAtLeast(1), unitPrice = finalPrice)
             } else item
         }
         _draft.value = currentDraft.copy(items = newItems)
@@ -218,6 +240,16 @@ class NewPresaleViewModel(
         val currentDraft = _draft.value
         val newItems = currentDraft.items.filter { it.product.id != productId }
         _draft.value = currentDraft.copy(items = newItems)
+    }
+
+    fun updateBonusAllocation(productId: String, quantity: Int) {
+        val current = _allocatedBonuses.value.toMutableMap()
+        if (quantity <= 0) {
+            current.remove(productId)
+        } else {
+            current[productId] = quantity
+        }
+        _allocatedBonuses.value = current
     }
 
     fun openClientForm() {
@@ -269,13 +301,20 @@ class NewPresaleViewModel(
     fun registerSale() {
         if (_isSubmitting.value) return
         val discVal = discountInput.value.toDoubleOrNull() ?: 0.0
+
+        val allocatedList = _allocatedBonuses.value.map { (prodId, qty) -> BonusAllocationRequestDto(prodId, qty) }
+        val productSubCategoryMap = _products.value.associate { it.id to (it.subCategoryId ?: "") }
+
         val validationResult = registerPresaleUseCase.validateAndBuildRequest(
             draft = _draft.value,
             isAdmin = isAdmin,
             discountInput = discVal,
             paymentMethod = paymentMethodInput.value,
             paymentReference = paymentReferenceInput.value,
-            dueDateStr = dueDateInput.value
+            dueDateStr = dueDateInput.value,
+            allocatedBonuses = allocatedList,
+            earnedBonusesMap = earnedBonuses.value,
+            productSubCategoryMap = productSubCategoryMap
         )
 
         if (validationResult.isFailure) {
@@ -294,11 +333,10 @@ class NewPresaleViewModel(
             val result = presaleRepository.registerSale(idempotencyKey, requestDto)
             result.onSuccess { saleResponse ->
                 _registeredSale.value = saleResponse
-                // Clear draft and generate new idempotency key on success
                 _draft.value = PresaleDraft()
+                _allocatedBonuses.value = emptyMap()
                 discountInput.value = "0"
                 idempotencyKey = UUID.randomUUID().toString()
-                // Refresh product catalog stock
                 productRepository.refreshCatalog()
             }.onFailure {
                 _errorMessage.value = it.message ?: "Error al registrar la preventa"

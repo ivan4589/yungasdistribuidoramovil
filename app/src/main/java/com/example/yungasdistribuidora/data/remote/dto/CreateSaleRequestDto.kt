@@ -5,6 +5,7 @@ import com.google.gson.annotations.SerializedName
 data class CreateSaleRequestDto(
     @SerializedName("clientId") val clientId: String,
     @SerializedName("details") val details: List<SaleDetailRequestDto>,
+    @SerializedName("bonuses") val bonuses: List<BonusAllocationRequestDto>?,
     @SerializedName("discount") val discount: Double?,
     @SerializedName("observations") val observations: String?,
     @SerializedName("saleType") val saleType: String,
@@ -19,4 +20,9 @@ data class SaleDetailRequestDto(
     @SerializedName("quantity") val quantity: Int,
     @SerializedName("unitPrice") val unitPrice: Double,
     @SerializedName("manualPrice") val manualPrice: Boolean
+)
+
+data class BonusAllocationRequestDto(
+    @SerializedName("productId") val productId: String,
+    @SerializedName("quantity") val quantity: Int
 )

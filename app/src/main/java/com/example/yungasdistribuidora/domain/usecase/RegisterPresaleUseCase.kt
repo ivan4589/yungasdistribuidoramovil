@@ -1,5 +1,6 @@
 package com.example.yungasdistribuidora.domain.usecase
 
+import com.example.yungasdistribuidora.data.remote.dto.BonusAllocationRequestDto
 import com.example.yungasdistribuidora.data.remote.dto.CreateSaleRequestDto
 import com.example.yungasdistribuidora.data.remote.dto.SaleDetailRequestDto
 import com.example.yungasdistribuidora.domain.model.PresaleDraft
@@ -15,12 +16,14 @@ class RegisterPresaleUseCase {
         discountInput: Double,
         paymentMethod: String?,
         paymentReference: String?,
-        dueDateStr: String?
+        dueDateStr: String?,
+        allocatedBonuses: List<BonusAllocationRequestDto> = emptyList(),
+        earnedBonusesMap: Map<String, Int> = emptyMap(),
+        productSubCategoryMap: Map<String, String> = emptyMap()
     ): Result<CreateSaleRequestDto> {
         val client = draft.client ?: return Result.failure(Exception("Debe seleccionar un cliente"))
         if (draft.items.isEmpty()) return Result.failure(Exception("Debe agregar al menos un producto"))
 
-        // Check duplicate productIds
         val productIds = draft.items.map { it.product.id }
         if (productIds.size != productIds.toSet().size) {
             return Result.failure(Exception("No se permiten productos repetidos en la preventa"))
@@ -34,12 +37,26 @@ class RegisterPresaleUseCase {
             return Result.failure(Exception("Los vendedores no pueden aplicar descuentos"))
         }
 
-        // Validate items quantity and stock
         for (item in draft.items) {
             if (item.quantity < 1) return Result.failure(Exception("La cantidad de '${item.product.name}' debe ser al menos 1"))
             if (item.unitPrice < 0) return Result.failure(Exception("El precio unitario de '${item.product.name}' no puede ser negativo"))
-            if (item.quantity > item.product.availableStock) {
+            if (item.quantity > item.product.availableStock.toInt()) {
                 return Result.failure(Exception("Stock insuficiente para '${item.product.name}'. Disponible: ${item.product.availableStock.toInt()}"))
+            }
+        }
+
+        val allocatedBySubCategory = mutableMapOf<String, Int>()
+        for (bonus in allocatedBonuses) {
+            if (bonus.quantity < 1) return Result.failure(Exception("La cantidad de bonificación debe ser al menos 1"))
+            val subCatId = productSubCategoryMap[bonus.productId]
+                ?: return Result.failure(Exception("Producto de bonificación no válido"))
+            allocatedBySubCategory[subCatId] = allocatedBySubCategory.getOrDefault(subCatId, 0) + bonus.quantity
+        }
+
+        for ((subCatId, earnedQty) in earnedBonusesMap) {
+            val allocatedQty = allocatedBySubCategory[subCatId] ?: 0
+            if (allocatedQty > earnedQty) {
+                return Result.failure(Exception("Ha asignado más productos de bonificación de los ganados en una subcategoría"))
             }
         }
 
@@ -108,7 +125,7 @@ class RegisterPresaleUseCase {
         val details = draft.items.map { item ->
             SaleDetailRequestDto(
                 productId = item.product.id,
-                quantity = item.quantity.toInt(),
+                quantity = item.quantity,
                 unitPrice = item.unitPrice,
                 manualPrice = isAdmin
             )
@@ -117,6 +134,7 @@ class RegisterPresaleUseCase {
         val request = CreateSaleRequestDto(
             clientId = client.id,
             details = details,
+            bonuses = allocatedBonuses.takeIf { it.isNotEmpty() },
             discount = discountInput.takeIf { it > 0 } ?: 0.0,
             observations = draft.observations.takeIf { !it.isBlank() },
             saleType = saleType,

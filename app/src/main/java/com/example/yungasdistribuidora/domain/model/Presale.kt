@@ -8,7 +8,7 @@ enum class SaleModality(val displayName: String) {
 
 data class PresaleItem(
     val product: Product,
-    val quantity: Double,
+    val quantity: Int,
     val unitPrice: Double
 ) {
     val subtotal: Double

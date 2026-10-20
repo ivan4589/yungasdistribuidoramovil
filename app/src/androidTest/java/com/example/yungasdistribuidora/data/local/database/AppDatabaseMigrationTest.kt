@@ -46,4 +46,22 @@ class AppDatabaseMigrationTest {
         assertNotNull(cursorMetadata)
         cursorMetadata.close()
     }
+
+    @Test
+    @Throws(IOException::class)
+    fun migrate2To3() {
+        var db = helper.createDatabase(TEST_DB, 2).apply {
+            close()
+        }
+
+        db = helper.runMigrationsAndValidate(TEST_DB, 3, true, MIGRATION_2_3)
+
+        val cursorBonusRules = db.query("SELECT * FROM bonus_rules")
+        assertNotNull(cursorBonusRules)
+        cursorBonusRules.close()
+
+        val cursorSales = db.query("SELECT * FROM sales")
+        assertNotNull(cursorSales)
+        cursorSales.close()
+    }
 }

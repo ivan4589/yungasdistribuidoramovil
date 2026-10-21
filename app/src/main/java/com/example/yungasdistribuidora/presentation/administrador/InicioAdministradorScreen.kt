@@ -14,6 +14,7 @@ fun InicioAdministradorScreen(
     onNavigateToClients: () -> Unit,
     onNavigateToProducts: () -> Unit,
     onNavigateToNewPresale: () -> Unit,
+    onNavigateToMyPresales: () -> Unit,
     onLogout: () -> Unit
 ) {
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -53,6 +54,16 @@ fun InicioAdministradorScreen(
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
             ) {
                 Text("Nueva Preventa")
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Button(
+                onClick = onNavigateToMyPresales,
+                modifier = Modifier.fillMaxWidth().height(50.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+            ) {
+                Text("Mis Preventas / Ventas")
             }
 
             Spacer(modifier = Modifier.height(16.dp))

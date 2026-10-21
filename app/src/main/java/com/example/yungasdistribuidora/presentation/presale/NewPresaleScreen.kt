@@ -32,6 +32,9 @@ fun NewPresaleScreen(
     val clients by viewModel.filteredClients.collectAsState()
     val products by viewModel.filteredProducts.collectAsState()
     val locations by viewModel.locations.collectAsState()
+    val earnedBonuses by viewModel.earnedBonuses.collectAsState()
+    val allocatedBonuses by viewModel.allocatedBonuses.collectAsState()
+
     val clientSearchQuery by viewModel.clientSearchQuery.collectAsState()
     val productSearchQuery by viewModel.productSearchQuery.collectAsState()
     val selectedProductForAdd by viewModel.selectedProductForAdd.collectAsState()
@@ -311,7 +314,7 @@ fun NewPresaleScreen(
                         OutlinedTextField(
                             value = addQuantityInput,
                             onValueChange = viewModel::updateAddQuantity,
-                            label = { Text("Cantidad") },
+                            label = { Text("Cantidad (Entero)") },
                             modifier = Modifier.weight(1f),
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             singleLine = true
@@ -393,6 +396,46 @@ fun NewPresaleScreen(
                 )
             }
 
+            // Bonus Allocation Panel if earned bonuses exist
+            if (earnedBonuses.isNotEmpty()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("Bonificaciones Ganadas y Asignación", style = MaterialTheme.typography.titleSmall)
+                        earnedBonuses.forEach { (subCatId, earnedQty) ->
+                            val allocatedForSubCat = products.filter { it.subCategoryId == subCatId }.sumOf { allocatedBonuses[it.id] ?: 0 }
+                            val remaining = earnedQty - allocatedForSubCat
+                            Text("Subcategoría [$subCatId] — Ganadas: $earnedQty | Disponibles: $remaining", style = MaterialTheme.typography.bodySmall)
+
+                            products.filter { it.subCategoryId == subCatId }.forEach { prod ->
+                                val currentAlloc = allocatedBonuses[prod.id] ?: 0
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(start = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(prod.name, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        IconButton(onClick = { if (currentAlloc > 0) viewModel.updateBonusAllocation(prod.id, currentAlloc - 1) }) {
+                                            Icon(Icons.Default.Clear, contentDescription = "Menos", modifier = Modifier.size(18.dp))
+                                        }
+                                        Text("$currentAlloc", style = MaterialTheme.typography.bodyMedium)
+                                        IconButton(onClick = { viewModel.updateBonusAllocation(prod.id, currentAlloc + 1) }) {
+                                            Icon(Icons.Default.Add, contentDescription = "Más", modifier = Modifier.size(18.dp))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // Items List Header
             Text("Productos en Preventa (${draft.items.size})", style = MaterialTheme.typography.titleMedium)
 
@@ -427,7 +470,7 @@ fun NewPresaleScreen(
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(item.product.name, style = MaterialTheme.typography.titleSmall)
                                     Text(
-                                        "Bs. ${"%.2f".format(item.unitPrice)} x ${item.quantity.toInt()} = Bs. ${"%.2f".format(item.subtotal)}",
+                                        "Bs. ${"%.2f".format(item.unitPrice)} x ${item.quantity} = Bs. ${"%.2f".format(item.subtotal)}",
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = MaterialTheme.colorScheme.secondary
                                     )
@@ -510,7 +553,7 @@ fun NewPresaleScreen(
 
     // Edit Item Dialog
     editingItem?.let { item ->
-        var qtyText by remember { mutableStateOf(item.quantity.toInt().toString()) }
+        var qtyText by remember { mutableStateOf(item.quantity.toString()) }
         var priceText by remember { mutableStateOf(item.unitPrice.toString()) }
 
         AlertDialog(
@@ -522,7 +565,7 @@ fun NewPresaleScreen(
                     OutlinedTextField(
                         value = qtyText,
                         onValueChange = { qtyText = it },
-                        label = { Text("Cantidad") },
+                        label = { Text("Cantidad (Entero)") },
                         modifier = Modifier.fillMaxWidth(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         singleLine = true
@@ -544,7 +587,7 @@ fun NewPresaleScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        val newQty = qtyText.toDoubleOrNull() ?: item.quantity
+                        val newQty = qtyText.toIntOrNull() ?: item.quantity
                         val newPrice = priceText.toDoubleOrNull() ?: item.unitPrice
                         viewModel.updateItemDetails(item.product.id, newQty, newPrice)
                         editingItem = null

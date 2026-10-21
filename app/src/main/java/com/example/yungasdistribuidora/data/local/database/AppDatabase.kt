@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import com.example.yungasdistribuidora.data.local.bonus.BonusRuleDao
+import com.example.yungasdistribuidora.data.local.bonus.BonusRuleEntity
 import com.example.yungasdistribuidora.data.local.category.CategoryDao
 import com.example.yungasdistribuidora.data.local.category.CategoryEntity
 import com.example.yungasdistribuidora.data.local.client.ClientDao
@@ -14,6 +16,10 @@ import com.example.yungasdistribuidora.data.local.metadata.CatalogSyncMetadataDa
 import com.example.yungasdistribuidora.data.local.metadata.CatalogSyncMetadataEntity
 import com.example.yungasdistribuidora.data.local.product.ProductDao
 import com.example.yungasdistribuidora.data.local.product.ProductEntity
+import com.example.yungasdistribuidora.data.local.sale.SaleBonusEntity
+import com.example.yungasdistribuidora.data.local.sale.SaleDao
+import com.example.yungasdistribuidora.data.local.sale.SaleDetailEntity
+import com.example.yungasdistribuidora.data.local.sale.SaleEntity
 import com.example.yungasdistribuidora.data.local.subcategory.SubCategoryDao
 import com.example.yungasdistribuidora.data.local.subcategory.SubCategoryEntity
 
@@ -24,9 +30,13 @@ import com.example.yungasdistribuidora.data.local.subcategory.SubCategoryEntity
         ProductEntity::class,
         CategoryEntity::class,
         SubCategoryEntity::class,
-        CatalogSyncMetadataEntity::class
+        CatalogSyncMetadataEntity::class,
+        BonusRuleEntity::class,
+        SaleEntity::class,
+        SaleDetailEntity::class,
+        SaleBonusEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -36,6 +46,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun categoryDao(): CategoryDao
     abstract fun subCategoryDao(): SubCategoryDao
     abstract fun catalogSyncMetadataDao(): CatalogSyncMetadataDao
+    abstract fun bonusRuleDao(): BonusRuleDao
+    abstract fun saleDao(): SaleDao
 
     companion object {
         @Volatile
@@ -48,7 +60,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "yungas_distribuidora.db"
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build()
                 INSTANCE = instance
                 instance

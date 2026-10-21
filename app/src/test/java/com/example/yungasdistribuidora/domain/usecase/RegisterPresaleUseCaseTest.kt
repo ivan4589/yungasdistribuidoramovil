@@ -3,8 +3,6 @@ package com.example.yungasdistribuidora.domain.usecase
 import com.example.yungasdistribuidora.domain.model.*
 import org.junit.Assert.*
 import org.junit.Test
-import java.text.SimpleDateFormat
-import java.util.*
 
 class RegisterPresaleUseCaseTest {
 
@@ -34,8 +32,8 @@ class RegisterPresaleUseCaseTest {
         providerId = "prov-1",
         categoryId = "cat-1",
         categoryName = "Cat",
-        subCategoryId = null,
-        subCategoryName = null,
+        subCategoryId = "sub-1",
+        subCategoryName = "SubCat",
         weight = null,
         priceNormal = 100.0,
         priceCamino = 90.0,
@@ -61,7 +59,7 @@ class RegisterPresaleUseCaseTest {
     fun testPorCobrarBuildsCorrectRequest() {
         val draft = PresaleDraft(
             client = sampleClient,
-            items = listOf(PresaleItem(sampleProduct, 2.0, 100.0)),
+            items = listOf(PresaleItem(sampleProduct, 2, 100.0)),
             modality = SaleModality.POR_COBRAR,
             observations = "Test obs"
         )
@@ -79,7 +77,7 @@ class RegisterPresaleUseCaseTest {
     fun testContadoRequiresPaymentMethod() {
         val draft = PresaleDraft(
             client = sampleClient,
-            items = listOf(PresaleItem(sampleProduct, 1.0, 100.0)),
+            items = listOf(PresaleItem(sampleProduct, 1, 100.0)),
             modality = SaleModality.CONTADO
         )
 
@@ -92,7 +90,7 @@ class RegisterPresaleUseCaseTest {
     fun testCreditRequiresDueDate() {
         val draft = PresaleDraft(
             client = sampleClient,
-            items = listOf(PresaleItem(sampleProduct, 1.0, 100.0)),
+            items = listOf(PresaleItem(sampleProduct, 1, 100.0)),
             modality = SaleModality.CREDITO
         )
 
@@ -105,7 +103,7 @@ class RegisterPresaleUseCaseTest {
     fun testVendorCannotApplyDiscount() {
         val draft = PresaleDraft(
             client = sampleClient,
-            items = listOf(PresaleItem(sampleProduct, 1.0, 100.0)),
+            items = listOf(PresaleItem(sampleProduct, 1, 100.0)),
             modality = SaleModality.POR_COBRAR
         )
 

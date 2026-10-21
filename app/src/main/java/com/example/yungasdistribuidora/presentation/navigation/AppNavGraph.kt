@@ -32,6 +32,7 @@ import com.example.yungasdistribuidora.presentation.productdetail.ProductDetailS
 import com.example.yungasdistribuidora.presentation.productdetail.ProductDetailViewModel
 import com.example.yungasdistribuidora.presentation.products.ProductsScreen
 import com.example.yungasdistribuidora.presentation.products.ProductsViewModel
+import com.example.yungasdistribuidora.presentation.profile.ProfileScreen
 import com.example.yungasdistribuidora.presentation.sales.*
 import com.example.yungasdistribuidora.presentation.splash.SplashScreen
 import com.example.yungasdistribuidora.presentation.splash.SplashViewModel
@@ -58,15 +59,26 @@ fun AppNavGraph() {
     val lockState by appLockManager.lockState.collectAsState()
     val activity = LocalContext.current as? FragmentActivity
 
+    val initialSession = remember { offlineSessionManager.getSession() }
     var tempRecoveryCodes by remember { mutableStateOf<List<String>>(emptyList()) }
     var tempUserRole by remember { mutableStateOf("") }
-    var currentUserEmail by remember { mutableStateOf("") }
-    var currentUserName by remember { mutableStateOf("") }
-    var currentUserRole by remember { mutableStateOf(UserRole.UNKNOWN) }
-    var isOfflineMode by remember { mutableStateOf(false) }
-    var lastValidationTimeStr by remember { mutableStateOf<String?>(null) }
+    var currentUserEmail by remember { mutableStateOf(initialSession?.email ?: "") }
+    var currentUserName by remember { mutableStateOf(initialSession?.name ?: "") }
+    var currentUserRole by remember { mutableStateOf(initialSession?.role ?: UserRole.UNKNOWN) }
+    var isOfflineMode by remember { mutableStateOf(initialSession != null) }
+    var lastValidationTimeStr by remember { mutableStateOf<String?>(initialSession?.let { SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date(it.lastOnlineValidationAt)) }) }
 
     val dateFormat = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
+
+    val navigateToTab = { route: String ->
+        navController.navigate(route) {
+            popUpTo(navController.graph.startDestinationId) {
+                saveState = true
+            }
+            launchSingleTop = true
+            restoreState = true
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         NavHost(navController = navController, startDestination = "splash") {
@@ -237,10 +249,13 @@ fun AppNavGraph() {
                     InicioAdministradorScreen(
                         userName = currentUserName.ifBlank { "Administrador" },
                         userEmail = currentUserEmail.ifBlank { "admin@yungasdistribuidora.cc" },
+                        isOffline = isOfflineMode,
+                        lastValidationTime = lastValidationTimeStr,
                         onNavigateToClients = { navController.navigate("clients") },
                         onNavigateToProducts = { navController.navigate("products") },
                         onNavigateToNewPresale = { navController.navigate("new_presale") },
                         onNavigateToMyPresales = { navController.navigate("my_presales") },
+                        onNavigate = navigateToTab,
                         onLogout = {
                             runBlocking { authRepo.logout() }
                             appLockManager.clear()
@@ -259,10 +274,13 @@ fun AppNavGraph() {
                     InicioVendedorScreen(
                         userName = currentUserName.ifBlank { "Vendedor" },
                         userEmail = currentUserEmail.ifBlank { "vendedor@yungasdistribuidora.cc" },
+                        isOffline = isOfflineMode,
+                        lastValidationTime = lastValidationTimeStr,
                         onNavigateToClients = { navController.navigate("clients") },
                         onNavigateToProducts = { navController.navigate("products") },
                         onNavigateToNewPresale = { navController.navigate("new_presale") },
                         onNavigateToMyPresales = { navController.navigate("my_presales") },
+                        onNavigate = navigateToTab,
                         onLogout = {
                             runBlocking { authRepo.logout() }
                             appLockManager.clear()
@@ -273,6 +291,25 @@ fun AppNavGraph() {
                         }
                     )
                 }
+            }
+
+            composable("profile") {
+                ProfileScreen(
+                    userName = currentUserName,
+                    userEmail = currentUserEmail,
+                    userRole = currentUserRole.name,
+                    isOffline = isOfflineMode,
+                    lastValidationTime = lastValidationTimeStr,
+                    onNavigate = navigateToTab,
+                    onLogout = {
+                        runBlocking { authRepo.logout() }
+                        appLockManager.clear()
+                        isOfflineMode = false
+                        navController.navigate("login") {
+                            popUpTo(0) { inclusive = true }
+                        }
+                    }
+                )
             }
 
             composable("role_not_available") {
@@ -300,7 +337,8 @@ fun AppNavGraph() {
                     isAdmin = isAdmin,
                     onNavigateBack = { navController.popBackStack() },
                     onNavigateToDetail = { clientId -> navController.navigate("clients/$clientId") },
-                    onNavigateToCreate = { navController.navigate("clients/new") }
+                    onNavigateToCreate = { navController.navigate("clients/new") },
+                    onNavigate = navigateToTab
                 )
             }
 
@@ -359,6 +397,7 @@ fun AppNavGraph() {
             // Products / Catalog Routes
             composable("products") {
                 val canViewCatalog = currentUserRole == UserRole.ADMIN || currentUserRole == UserRole.VENDEDOR
+                val isAdmin = currentUserRole == UserRole.ADMIN
                 if (!canViewCatalog) {
                     LaunchedEffect(Unit) {
                         navController.popBackStack()
@@ -367,8 +406,10 @@ fun AppNavGraph() {
                     val viewModel = remember { ProductsViewModel(productRepo) }
                     ProductsScreen(
                         viewModel = viewModel,
+                        isAdmin = isAdmin,
                         onNavigateBack = { navController.popBackStack() },
-                        onNavigateToDetail = { productId -> navController.navigate("products/$productId") }
+                        onNavigateToDetail = { productId -> navController.navigate("products/$productId") },
+                        onNavigate = navigateToTab
                     )
                 }
             }
@@ -425,7 +466,9 @@ fun AppNavGraph() {
                         viewModel = viewModel,
                         isAdmin = isAdmin,
                         onNavigateBack = { navController.popBackStack() },
-                        onNavigateToDetail = { saleId -> navController.navigate("sales/$saleId") }
+                        onNavigateToDetail = { saleId -> navController.navigate("sales/$saleId") },
+                        onNavigateToNewPresale = { navController.navigate("new_presale") },
+                        onNavigate = navigateToTab
                     )
                 }
             }

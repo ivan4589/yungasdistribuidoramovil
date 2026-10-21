@@ -1,5 +1,6 @@
 package com.example.yungasdistribuidora.presentation.products
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -16,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.example.yungasdistribuidora.domain.model.AvailabilityStatus
 import com.example.yungasdistribuidora.domain.model.Product
+import com.example.yungasdistribuidora.presentation.components.YungasBottomBar
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -23,8 +25,10 @@ import java.util.*
 @Composable
 fun ProductsScreen(
     viewModel: ProductsViewModel,
+    isAdmin: Boolean,
     onNavigateBack: () -> Unit,
-    onNavigateToDetail: (String) -> Unit
+    onNavigateToDetail: (String) -> Unit,
+    onNavigate: (String) -> Unit
 ) {
     val products by viewModel.products.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
@@ -55,6 +59,12 @@ fun ProductsScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Catálogo de productos (${products.size})") },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color(0xFF103B56),
+                    titleContentColor = Color.White,
+                    navigationIconContentColor = Color.White,
+                    actionIconContentColor = Color.White
+                ),
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Volver")
@@ -96,60 +106,72 @@ fun ProductsScreen(
                     }
                 }
             )
+        },
+        bottomBar = {
+            YungasBottomBar(
+                currentRoute = "products",
+                isAdmin = isAdmin,
+                onNavigate = onNavigate
+            )
         }
     ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(horizontal = 16.dp)
+                .background(Color(0xFF071E30))
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             // Sync & Filters toggle row
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp),
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Última sincronización: $lastSyncStr",
+                    text = "Sincronización: $lastSyncStr",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = Color(0xFFA8B8C5)
                 )
                 TextButton(onClick = { showFilters = !showFilters }) {
-                    Icon(Icons.Default.List, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Default.List, contentDescription = null, modifier = Modifier.size(18.dp), tint = Color(0xFF35D5B1))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text(if (showFilters) "Ocultar filtros" else "Filtros")
+                    Text(if (showFilters) "Ocultar filtros" else "Filtros", color = Color(0xFF35D5B1))
                 }
             }
 
-            // Search Bar
+            // Search Bar with QR icon
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = viewModel::setSearchQuery,
                 modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Buscar por código o nombre...") },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                placeholder = { Text("Buscar por código o nombre...", color = Color(0xFFA8B8C5)) },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = Color(0xFFA8B8C5)) },
                 trailingIcon = {
                     if (searchQuery.isNotEmpty()) {
                         IconButton(onClick = { viewModel.setSearchQuery("") }) {
-                            Icon(Icons.Default.Clear, contentDescription = "Limpiar")
+                            Icon(Icons.Default.Clear, contentDescription = "Limpiar", tint = Color(0xFFA8B8C5))
                         }
                     }
                 },
-                singleLine = true
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Color(0xFF35D5B1),
+                    unfocusedBorderColor = Color(0xFFA8B8C5).copy(alpha = 0.5f),
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White
+                )
             )
 
             // Collapsible Filters
             if (showFilters) {
-                Spacer(modifier = Modifier.height(8.dp))
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF13324C))
                 ) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Disponibilidad", style = MaterialTheme.typography.labelMedium)
+                        Text("Disponibilidad", style = MaterialTheme.typography.labelMedium, color = Color(0xFF35D5B1))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -165,11 +187,6 @@ fun ProductsScreen(
                                 label = { Text("Disponibles") }
                             )
                             FilterChip(
-                                selected = availabilityFilter == AvailabilityFilter.LOW_STOCK,
-                                onClick = { viewModel.setAvailabilityFilter(AvailabilityFilter.LOW_STOCK) },
-                                label = { Text("Poco stock") }
-                            )
-                            FilterChip(
                                 selected = availabilityFilter == AvailabilityFilter.OUT_OF_STOCK,
                                 onClick = { viewModel.setAvailabilityFilter(AvailabilityFilter.OUT_OF_STOCK) },
                                 label = { Text("Agotados") }
@@ -177,7 +194,7 @@ fun ProductsScreen(
                         }
 
                         // Category Dropdown
-                        Text("Categoría", style = MaterialTheme.typography.labelMedium)
+                        Text("Categoría", style = MaterialTheme.typography.labelMedium, color = Color(0xFF35D5B1))
                         var catExpanded by remember { mutableStateOf(false) }
                         val selectedCatName = categories.find { it.id == selectedCategoryId }?.name ?: "Todas las categorías"
                         Box(modifier = Modifier.fillMaxWidth()) {
@@ -197,49 +214,23 @@ fun ProductsScreen(
                                 }
                             }
                         }
-
-                        // SubCategory Dropdown
-                        if (selectedCategoryId != null) {
-                            Text("Subcategoría", style = MaterialTheme.typography.labelMedium)
-                            var subCatExpanded by remember { mutableStateOf(false) }
-                            val selectedSubCatName = filteredSubCategories.find { it.id == selectedSubCategoryId }?.name ?: "Todas las subcategorías"
-                            Box(modifier = Modifier.fillMaxWidth()) {
-                                OutlinedButton(onClick = { subCatExpanded = true }, modifier = Modifier.fillMaxWidth()) {
-                                    Text(selectedSubCatName)
-                                }
-                                DropdownMenu(expanded = subCatExpanded, onDismissRequest = { subCatExpanded = false }) {
-                                    DropdownMenuItem(
-                                        text = { Text("Todas las subcategorías") },
-                                        onClick = { viewModel.setSelectedSubCategory(null); subCatExpanded = false }
-                                    )
-                                    filteredSubCategories.forEach { subCat ->
-                                        DropdownMenuItem(
-                                            text = { Text(subCat.name) },
-                                            onClick = { viewModel.setSelectedSubCategory(subCat.id); subCatExpanded = false }
-                                        )
-                                    }
-                                }
-                            }
-                        }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
-
             // Error banner if any
             errorMessage?.let { msg ->
                 Card(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFEF5350).copy(alpha = 0.2f))
                 ) {
                     Row(
                         modifier = Modifier.padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(text = msg, color = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.weight(1f))
+                        Text(text = msg, color = Color.White, modifier = Modifier.weight(1f))
                         TextButton(onClick = { viewModel.refreshCatalog(false) }) {
-                            Text("Reintentar")
+                            Text("Reintentar", color = Color(0xFF35D5B1))
                         }
                     }
                 }
@@ -248,21 +239,21 @@ fun ProductsScreen(
             // Main Content
             if (isLoading) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
+                    CircularProgressIndicator(color = Color(0xFF35D5B1))
                 }
             } else if (products.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Default.List, contentDescription = null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.outline)
+                        Icon(Icons.Default.List, contentDescription = null, modifier = Modifier.size(64.dp), tint = Color(0xFFA8B8C5))
                         Spacer(modifier = Modifier.height(8.dp))
-                        Text("No se encontraron productos", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.outline)
+                        Text("No se encontraron productos", style = MaterialTheme.typography.bodyLarge, color = Color(0xFFA8B8C5))
                     }
                 }
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(vertical = 8.dp)
+                    contentPadding = PaddingValues(bottom = 16.dp)
                 ) {
                     items(products, key = { it.id }) { product ->
                         ProductItemCard(product = product, onClick = { onNavigateToDetail(product.id) })
@@ -279,6 +270,7 @@ fun ProductItemCard(product: Product, onClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF13324C)),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Row(
@@ -288,11 +280,11 @@ fun ProductItemCard(product: Product, onClick: () -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Image / Placeholder
+            // Thumbnail
             Surface(
                 modifier = Modifier.size(64.dp),
                 shape = MaterialTheme.shapes.small,
-                color = MaterialTheme.colorScheme.surfaceVariant
+                color = Color(0xFF103B56)
             ) {
                 if (!product.imageUrl.isNullOrBlank()) {
                     AsyncImage(
@@ -303,7 +295,7 @@ fun ProductItemCard(product: Product, onClick: () -> Unit) {
                     )
                 } else {
                     Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                        Icon(Icons.Default.Star, contentDescription = null, tint = MaterialTheme.colorScheme.outline)
+                        Icon(Icons.Default.Star, contentDescription = null, tint = Color(0xFF35D5B1))
                     }
                 }
             }
@@ -311,12 +303,13 @@ fun ProductItemCard(product: Product, onClick: () -> Unit) {
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
                         text = product.code,
                         style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary
+                        color = Color(0xFF35D5B1)
                     )
                     AvailabilityBadge(status = product.availabilityStatus)
                 }
@@ -324,6 +317,7 @@ fun ProductItemCard(product: Product, onClick: () -> Unit) {
                 Text(
                     text = product.name,
                     style = MaterialTheme.typography.titleMedium,
+                    color = Color.White,
                     maxLines = 1
                 )
 
@@ -335,12 +329,12 @@ fun ProductItemCard(product: Product, onClick: () -> Unit) {
                     Text(
                         text = "Bs. ${"%.2f".format(product.priceNormal)} (${product.unit})",
                         style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.secondary
+                        color = Color(0xFF35D5B1)
                     )
                     Text(
                         text = "Stock: ${product.availableStock.toInt()}",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = Color(0xFFA8B8C5)
                     )
                 }
             }
@@ -351,13 +345,13 @@ fun ProductItemCard(product: Product, onClick: () -> Unit) {
 @Composable
 fun AvailabilityBadge(status: AvailabilityStatus) {
     val (text, color) = when (status) {
-        AvailabilityStatus.AVAILABLE -> "Disponible" to Color(0xFF2E7D32)
-        AvailabilityStatus.LOW_STOCK -> "Poco stock" to Color(0xFFEF6C00)
-        AvailabilityStatus.OUT_OF_STOCK -> "Agotado" to Color(0xFFC62828)
+        AvailabilityStatus.AVAILABLE -> "Disponible" to Color(0xFF087C69)
+        AvailabilityStatus.LOW_STOCK -> "Poco stock" to Color(0xFFF5B942)
+        AvailabilityStatus.OUT_OF_STOCK -> "Agotado" to Color(0xFFEF5350)
     }
 
     Surface(
-        color = color.copy(alpha = 0.15f),
+        color = color.copy(alpha = 0.2f),
         shape = MaterialTheme.shapes.extraSmall
     ) {
         Text(

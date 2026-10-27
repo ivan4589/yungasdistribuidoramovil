@@ -41,8 +41,7 @@ fun YungasBottomBar(
                     selectedIconColor = Color(0xFF35D5B1),
                     selectedTextColor = Color(0xFF35D5B1),
                     unselectedIconColor = Color(0xFFA8B8C5),
-                    unselectedTextColor = Color(0xFFA8B8C5),
-                    indicatorColor = Color(0xFF071E30)
+                    unselectedTextColor = Color(0xFFA8B8C5)
                 )
             )
         }

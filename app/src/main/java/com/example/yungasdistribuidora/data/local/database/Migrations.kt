@@ -67,11 +67,11 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
             CREATE TABLE IF NOT EXISTS bonus_rules (
                 id TEXT PRIMARY KEY NOT NULL,
                 subCategoryId TEXT NOT NULL,
-                minQuantity INTEGER NOT NULL,
+                minimumQuantity INTEGER NOT NULL,
                 bonusQuantity INTEGER NOT NULL,
-                startDate TEXT,
-                endDate TEXT,
-                isActive INTEGER NOT NULL
+                isActive INTEGER NOT NULL,
+                createdAt TEXT,
+                updatedAt TEXT
             )
         """)
         db.execSQL("""
@@ -110,9 +110,7 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
                 FOREIGN KEY(saleId) REFERENCES sales(id) ON DELETE CASCADE
             )
         """)
-        db.execSQL("""
-            CREATE INDEX IF NOT EXISTS index_sale_details_saleId ON sale_details(saleId)
-        """)
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_sale_details_saleId ON sale_details(saleId)")
         db.execSQL("""
             CREATE TABLE IF NOT EXISTS sale_bonuses (
                 id TEXT PRIMARY KEY NOT NULL,
@@ -123,8 +121,12 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
                 FOREIGN KEY(saleId) REFERENCES sales(id) ON DELETE CASCADE
             )
         """)
-        db.execSQL("""
-            CREATE INDEX IF NOT EXISTS index_sale_bonuses_saleId ON sale_bonuses(saleId)
-        """)
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_sale_bonuses_saleId ON sale_bonuses(saleId)")
+    }
+}
+
+val MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE sales ADD COLUMN cancelledPdfUrl TEXT")
     }
 }

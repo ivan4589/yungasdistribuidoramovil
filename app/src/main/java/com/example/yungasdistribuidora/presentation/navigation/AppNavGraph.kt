@@ -471,6 +471,24 @@ fun AppNavGraph() {
             }
 
             composable(
+                route = "sales/{id}/edit",
+                arguments = listOf(navArgument("id") { type = NavType.StringType })
+            ) { entry ->
+                val id = entry.arguments?.getString("id") ?: ""
+                val allowed = currentUserRole == UserRole.ADMIN || currentUserRole == UserRole.VENDEDOR
+                if (!allowed) {
+                    LaunchedEffect(Unit) { navController.popBackStack() }
+                } else {
+                    val editor = remember(id) {
+                        NewPresaleViewModel(clientRepo, productRepo, presaleRepo, bonusRuleRepo,
+                            currentUserRole == UserRole.ADMIN, editingSaleId = id, salesRepository = salesRepo)
+                    }
+                    NewPresaleScreen(editor, currentUserRole == UserRole.ADMIN, true,
+                        onNavigateBack = { navController.popBackStack() })
+                }
+            }
+
+            composable(
                 route = "sales/{id}",
                 arguments = listOf(navArgument("id") { type = NavType.StringType })
             ) { backStackEntry ->
@@ -486,7 +504,8 @@ fun AppNavGraph() {
                     PresaleDetailScreen(
                         viewModel = viewModel,
                         isAdmin = isAdmin,
-                        onNavigateBack = { navController.popBackStack() }
+                        onNavigateBack = { navController.popBackStack() },
+                        onEdit = { navController.navigate("sales/$saleId/edit") }
                     )
                 }
             }

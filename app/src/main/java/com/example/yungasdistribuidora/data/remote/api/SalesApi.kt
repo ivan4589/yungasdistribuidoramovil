@@ -2,6 +2,7 @@ package com.example.yungasdistribuidora.data.remote.api
 
 import com.example.yungasdistribuidora.data.remote.dto.CreateSaleRequestDto
 import com.example.yungasdistribuidora.data.remote.dto.SaleResponseDto
+import com.example.yungasdistribuidora.data.remote.dto.*
 import okhttp3.ResponseBody
 import retrofit2.Response
 import retrofit2.http.*
@@ -31,7 +32,7 @@ interface SalesApi {
     suspend fun updateSale(
         @Header("Idempotency-Key") idempotencyKey: String,
         @Path("id") id: String,
-        @Body request: CreateSaleRequestDto
+        @Body request: UpdateSaleRequestDto
     ): Response<SaleResponseDto>
 
     @PATCH("sales/{id}/confirm")
@@ -46,13 +47,19 @@ interface SalesApi {
         @Path("id") id: String
     ): Response<SaleResponseDto>
 
-    @POST("sales/{id}/whatsapp")
+    @GET("clients/{id}")
+    suspend fun getWhatsAppClient(@Path("id") id: String): Response<WhatsAppClientDto>
+
+    @GET("clients/{id}/contacts")
+    suspend fun getWhatsAppContacts(@Path("id") id: String): Response<List<WhatsAppContactDto>>
+
+    @POST("sales/{id}/whatsapp/recipients")
     suspend fun sendWhatsapp(
         @Path("id") id: String,
-        @Body body: Map<String, Boolean>
-    ): Response<Unit>
+        @Body body: WhatsAppBatchRequest
+    ): Response<WhatsAppBatchResponse>
 
-    @GET("sales/{id}/pdf")
+    @GET("documents/sales/{id}")
     suspend fun downloadPdf(
         @Path("id") id: String
     ): Response<ResponseBody>

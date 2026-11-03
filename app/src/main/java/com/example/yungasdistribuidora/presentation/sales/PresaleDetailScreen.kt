@@ -11,19 +11,36 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PresaleDetailScreen(
     viewModel: PresaleDetailViewModel,
     isAdmin: Boolean,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    onEdit: () -> Unit
 ) {
     val sale by viewModel.sale.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
     val successMessage by viewModel.successMessage.collectAsState()
     val context = LocalContext.current
+    var confirmWhatsApp by remember { mutableStateOf(false) }
+    val savePdf = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
+        uri?.let { viewModel.downloadAndOpenPdf(context, it) }
+    }
+
+    if (confirmWhatsApp) {
+        AlertDialog(
+            onDismissRequest = { confirmWhatsApp = false },
+            title = { Text("Enviar recibo por WhatsApp") },
+            text = { Text("Se enviará al número principal y a todos los contactos activos que autorizaron recibir documentos. Los ya enviados no se reenviarán automáticamente.") },
+            confirmButton = { TextButton(onClick = { confirmWhatsApp = false; viewModel.sendWhatsapp(false) }) { Text("Enviar a todos") } },
+            dismissButton = { TextButton(onClick = { confirmWhatsApp = false }) { Text("Cancelar") } }
+        )
+    }
 
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(errorMessage, successMessage) {
@@ -128,8 +145,12 @@ fun PresaleDetailScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     if (s.status == "PENDING") {
+                        OutlinedButton(onClick = onEdit, enabled = !isLoading, modifier = Modifier.weight(1f)) {
+                            Text("Editar")
+                        }
                         Button(
                             onClick = { viewModel.confirmSale() },
+                            enabled = !isLoading,
                             modifier = Modifier.weight(1f)
                         ) {
                             Text("Confirmar")
@@ -138,6 +159,7 @@ fun PresaleDetailScreen(
                     if (isAdmin && s.status != "CANCELLED") {
                         OutlinedButton(
                             onClick = { viewModel.cancelSale() },
+                            enabled = !isLoading,
                             modifier = Modifier.weight(1f),
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
                         ) {
@@ -151,7 +173,8 @@ fun PresaleDetailScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Button(
-                        onClick = { viewModel.sendWhatsapp(resend = false) },
+                        onClick = { confirmWhatsApp = true },
+                        enabled = !isLoading && s.status == "CONFIRMED",
                         modifier = Modifier.weight(1f)
                     ) {
                         Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -159,7 +182,8 @@ fun PresaleDetailScreen(
                         Text("WhatsApp")
                     }
                     Button(
-                        onClick = { viewModel.downloadAndOpenPdf(context) },
+                        onClick = { savePdf.launch("nota-venta-${s.saleNumber.replace(Regex("[^a-zA-Z0-9_-]"), "_")}.pdf") },
+                        enabled = !isLoading && s.status == "CONFIRMED",
                         modifier = Modifier.weight(1f)
                     ) {
                         Icon(Icons.Default.Info, contentDescription = null, modifier = Modifier.size(16.dp))

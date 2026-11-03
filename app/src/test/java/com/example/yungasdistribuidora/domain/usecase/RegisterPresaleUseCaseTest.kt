@@ -8,6 +8,25 @@ class RegisterPresaleUseCaseTest {
 
     private val useCase = RegisterPresaleUseCase()
 
+    @Test fun editingCountsItsOwnReservedUnitsAndPreservesAdminPrice() {
+        val product = sampleProduct.copy(centralAvailableStock = 0.0)
+        val draft = PresaleDraft(sampleClient, listOf(PresaleItem(product, 5, 11.0)))
+        val result = useCase.validateAndBuildRequest(draft, true, 0.0, null, null, null,
+            reservedQuantities = mapOf("p1" to 5))
+        assertTrue(result.isSuccess)
+        assertEquals(11.0, result.getOrThrow().details.single().unitPrice, 0.0)
+        assertTrue(result.getOrThrow().details.single().manualPrice)
+        assertTrue(useCase.validateAndBuildRequest(draft, true, 0.0, null, null, null).isFailure)
+    }
+
+    @Test fun vendorCanPreserveExistingDiscountButCannotSetManualPrice() {
+        val draft = PresaleDraft(sampleClient, listOf(PresaleItem(sampleProduct, 2, 100.0)))
+        val result = useCase.validateAndBuildRequest(draft, false, 10.0, null, null, null, existingDiscount = 10.0)
+        assertTrue(result.isSuccess)
+        assertFalse(result.getOrThrow().details.single().manualPrice)
+        assertTrue(useCase.validateAndBuildRequest(draft, false, 20.0, null, null, null, existingDiscount = 10.0).isFailure)
+    }
+
     private val sampleClient = Client(
         id = "c1",
         fullName = "Tienda Don Mario",

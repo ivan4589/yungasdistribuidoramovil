@@ -40,5 +40,6 @@ data class SaleResponseDto(
     @SerializedName("details") val details: List<SaleDetailResponseDto>?,
     @SerializedName("bonuses") val bonuses: List<SaleBonusResponseDto>?,
     @SerializedName("createdAt") val createdAt: String,
-    @SerializedName("updatedAt") val updatedAt: String
+    @SerializedName("updatedAt") val updatedAt: String,
+    @SerializedName("cancelledPdfUrl") val cancelledPdfUrl: String? = null
 )

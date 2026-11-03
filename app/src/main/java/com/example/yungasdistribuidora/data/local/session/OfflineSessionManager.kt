@@ -1,8 +1,6 @@
 package com.example.yungasdistribuidora.data.local.session
 
 import android.content.Context
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKey
 import com.example.yungasdistribuidora.domain.model.User
 import com.google.gson.Gson
 
@@ -27,17 +25,7 @@ data class OfflineSession(
 
 class OfflineSessionManager(context: Context) {
 
-    private val masterKey = MasterKey.Builder(context)
-        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-        .build()
-
-    private val prefs = EncryptedSharedPreferences.create(
-        context,
-        "offline_session_prefs",
-        masterKey,
-        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-    )
+    private val prefs = openSecurePreferences(context, "offline_session_prefs")
 
     private val gson = Gson()
 
@@ -51,12 +39,12 @@ class OfflineSessionManager(context: Context) {
             lastOnlineValidationAt = System.currentTimeMillis(),
             offlineEnabled = remember
         )
-        prefs.edit().putString("offline_session", gson.toJson(session)).apply()
+        prefs?.edit()?.putString("offline_session", gson.toJson(session))?.apply()
     }
 
     fun getSession(): OfflineSession? {
-        val json = prefs.getString("offline_session", null) ?: return null
         return try {
+            val json = prefs?.getString("offline_session", null) ?: return null
             gson.fromJson(json, OfflineSession::class.java)
         } catch (e: Exception) {
             null
@@ -64,6 +52,6 @@ class OfflineSessionManager(context: Context) {
     }
 
     fun clear() {
-        prefs.edit().clear().apply()
+        prefs?.edit()?.clear()?.apply()
     }
 }

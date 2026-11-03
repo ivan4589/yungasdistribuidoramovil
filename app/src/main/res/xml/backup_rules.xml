@@ -6,6 +6,10 @@
    See https://developer.android.com/about/versions/12/backup-restore
 -->
 <full-backup-content>
+    <exclude domain="sharedpref" path="secure_cookies_prefs.xml" />
+    <exclude domain="sharedpref" path="secure_cookies_prefs_recovery.xml" />
+    <exclude domain="sharedpref" path="offline_session_prefs.xml" />
+    <exclude domain="sharedpref" path="offline_session_prefs_recovery.xml" />
     <!--
    <include domain="sharedpref" path="."/>
    <exclude domain="sharedpref" path="device.xml"/>

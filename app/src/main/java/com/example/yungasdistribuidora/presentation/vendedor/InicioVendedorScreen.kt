@@ -34,6 +34,7 @@ fun InicioVendedorScreen(
     onNavigateToNewPresale: () -> Unit,
     onNavigateToMyPresales: () -> Unit,
     onNavigate: (String) -> Unit,
+    onReconnect: () -> Unit,
     onLogout: () -> Unit
 ) {
     Scaffold(
@@ -77,7 +78,8 @@ fun InicioVendedorScreen(
         ) {
             ConnectionSyncStatusComponent(
                 syncState = if (isOffline) SyncState.OFFLINE else SyncState.ONLINE_SYNCED,
-                lastValidationTime = lastValidationTime
+                lastValidationTime = lastValidationTime,
+                onRetrySync = onReconnect
             )
 
             Column(

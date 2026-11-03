@@ -1,8 +1,10 @@
 package com.example.yungasdistribuidora.presentation.presale
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -13,11 +15,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
 import com.example.yungasdistribuidora.domain.model.Client
 import com.example.yungasdistribuidora.domain.model.ClientType
 import com.example.yungasdistribuidora.domain.model.PresaleItem
+import com.example.yungasdistribuidora.domain.model.Product
 import com.example.yungasdistribuidora.domain.model.SaleModality
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -32,14 +37,8 @@ fun NewPresaleScreen(
     val clients by viewModel.filteredClients.collectAsState()
     val products by viewModel.filteredProducts.collectAsState()
     val locations by viewModel.locations.collectAsState()
-    val earnedBonuses by viewModel.earnedBonuses.collectAsState()
-    val allocatedBonuses by viewModel.allocatedBonuses.collectAsState()
-
     val clientSearchQuery by viewModel.clientSearchQuery.collectAsState()
     val productSearchQuery by viewModel.productSearchQuery.collectAsState()
-    val selectedProductForAdd by viewModel.selectedProductForAdd.collectAsState()
-    val addQuantityInput by viewModel.addQuantityInput.collectAsState()
-    val addPriceInput by viewModel.addPriceInput.collectAsState()
     val discountInput by viewModel.discountInput.collectAsState()
     val paymentMethodInput by viewModel.paymentMethodInput.collectAsState()
     val paymentReferenceInput by viewModel.paymentReferenceInput.collectAsState()
@@ -48,15 +47,12 @@ fun NewPresaleScreen(
     val isClientFormOpen by viewModel.isClientFormOpen.collectAsState()
     val isConfirmDialogVisible by viewModel.isConfirmDialogVisible.collectAsState()
     val isSubmitting by viewModel.isSubmitting.collectAsState()
-    val isLoading by viewModel.isLoading.collectAsState()
     val registeredSale by viewModel.registeredSale.collectAsState()
 
     val subtotal by viewModel.subtotal.collectAsState()
     val totalAmount by viewModel.totalAmount.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
 
-    var showClientDropdown by remember { mutableStateOf(false) }
-    var showProductDropdown by remember { mutableStateOf(false) }
     var editingItem by remember { mutableStateOf<PresaleItem?>(null) }
     var paymentMethodExpanded by remember { mutableStateOf(false) }
 
@@ -72,17 +68,19 @@ fun NewPresaleScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(if (viewModel.isEditing) "Editar Preventa" else "Nueva Preventa") },
+                title = { Text("Nueva Preventa", color = Color.White) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Volver")
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Volver", tint = Color.White)
                     }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF103B56))
             )
         },
         bottomBar = {
             Surface(
                 tonalElevation = 8.dp,
+                color = Color(0xFF103B56),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
@@ -93,60 +91,83 @@ fun NewPresaleScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column {
-                        Text("Total: Bs. ${"%.2f".format(totalAmount)}", style = MaterialTheme.typography.titleMedium)
-                        Text("Items: ${draft.items.size}", style = MaterialTheme.typography.bodySmall)
+                        Text("Total Bs. ${"%.2f".format(totalAmount)}", style = MaterialTheme.typography.titleMedium, color = Color(0xFF35D5B1))
+                        Text("Items: ${draft.items.size}", style = MaterialTheme.typography.bodySmall, color = Color(0xFFA8B8C5))
                     }
                     Button(
                         onClick = { viewModel.showConfirmDialog() },
-                        enabled = draft.client != null && draft.items.isNotEmpty() && !isSubmitting && !isLoading
+                        enabled = draft.client != null && draft.items.isNotEmpty() && !isSubmitting,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF35D5B1), contentColor = Color(0xFF071E30))
                     ) {
                         if (isSubmitting) {
-                            CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary)
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color(0xFF071E30))
                             Spacer(modifier = Modifier.width(8.dp))
                         }
-                        Text(if (viewModel.isEditing) "Guardar cambios" else "Registrar Preventa")
+                        Text("Registrar Preventa", style = MaterialTheme.typography.labelLarge)
                     }
                 }
             }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { innerPadding ->
-        if (isLoading || isSubmitting) {
-            Box(Modifier.fillMaxSize().padding(innerPadding), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
-            return@Scaffold
-        }
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .background(Color(0xFF071E30))
                 .padding(16.dp)
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            if (viewModel.isEditing) Text("Editar la preventa no registra ni modifica pagos existentes.")
-            // Modality Selector
-            Text("Modalidad de Venta *", style = MaterialTheme.typography.labelMedium)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            // 1. Datos de Venta
+            Text("1. Datos de Venta", style = MaterialTheme.typography.titleMedium, color = Color.White)
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF103B56)),
+                modifier = Modifier.fillMaxWidth()
             ) {
-                SaleModality.entries.filter { !viewModel.isEditing || it != SaleModality.CONTADO }.forEach { modality ->
-                    FilterChip(
-                        selected = draft.modality == modality,
-                        onClick = { viewModel.setModality(modality) },
-                        label = { Text(modality.displayName) },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Modalidad de Venta", style = MaterialTheme.typography.labelMedium, color = Color(0xFFA8B8C5))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        SaleModality.entries.forEach { modality ->
+                            FilterChip(
+                                selected = draft.modality == modality,
+                                onClick = { viewModel.setModality(modality) },
+                                label = { Text(modality.displayName) },
+                                modifier = Modifier.weight(1f),
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(0xFF087C69),
+                                    selectedLabelColor = Color.White,
+                                    containerColor = Color(0xFF071E30),
+                                    labelColor = Color(0xFFA8B8C5)
+                                )
+                            )
+                        }
+                    }
 
-            // Conditional fields based on Modality
-            if (draft.modality == SaleModality.CONTADO) {
-                Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Detalles de Contado", style = MaterialTheme.typography.titleSmall)
+                    if (isAdmin) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        OutlinedTextField(
+                            value = discountInput,
+                            onValueChange = { viewModel.discountInput.value = it },
+                            label = { Text("Descuento Global (Bs.)") },
+                            modifier = Modifier.fillMaxWidth(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color(0xFF35D5B1),
+                                unfocusedBorderColor = Color(0xFFA8B8C5),
+                                focusedLabelColor = Color(0xFF35D5B1),
+                                unfocusedLabelColor = Color(0xFFA8B8C5),
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            )
+                        )
+                    }
+
+                    if (draft.modality == SaleModality.CONTADO) {
                         Box(modifier = Modifier.fillMaxWidth()) {
                             OutlinedButton(onClick = { paymentMethodExpanded = true }, modifier = Modifier.fillMaxWidth()) {
                                 Text("Método de pago: $paymentMethodInput")
@@ -160,19 +181,7 @@ fun NewPresaleScreen(
                                 }
                             }
                         }
-                        OutlinedTextField(
-                            value = paymentReferenceInput,
-                            onValueChange = { viewModel.paymentReferenceInput.value = it },
-                            label = { Text("Referencia de pago (Opcional)") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true
-                        )
-                    }
-                }
-            } else if (draft.modality == SaleModality.CREDITO) {
-                Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Detalles de Crédito", style = MaterialTheme.typography.titleSmall)
+                    } else if (draft.modality == SaleModality.CREDITO) {
                         OutlinedTextField(
                             value = dueDateInput,
                             onValueChange = { viewModel.dueDateInput.value = it },
@@ -181,292 +190,161 @@ fun NewPresaleScreen(
                             singleLine = true,
                             placeholder = { Text("Ej: 2026-10-05") }
                         )
-                        Box(modifier = Modifier.fillMaxWidth()) {
-                            OutlinedButton(onClick = { paymentMethodExpanded = true }, modifier = Modifier.fillMaxWidth()) {
-                                Text("Método pago inicial (Opcional): $paymentMethodInput")
-                            }
-                            DropdownMenu(expanded = paymentMethodExpanded, onDismissRequest = { paymentMethodExpanded = false }) {
-                                listOf("", "CASH", "QR", "BANK_TRANSFER").forEach { method ->
-                                    DropdownMenuItem(
-                                        text = { Text(method.ifBlank { "Ninguno" }) },
-                                        onClick = { viewModel.paymentMethodInput.value = method; paymentMethodExpanded = false }
-                                    )
-                                }
-                            }
-                        }
                     }
                 }
             }
 
-            // Admin Discount Input
-            if (isAdmin) {
-                OutlinedTextField(
-                    value = discountInput,
-                    onValueChange = { viewModel.discountInput.value = it },
-                    label = { Text("Descuento Global (Bs.)") },
-                    modifier = Modifier.fillMaxWidth(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    singleLine = true
-                )
-            }
-
-            // Client Selection Row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                OutlinedButton(
-                    onClick = { showClientDropdown = true },
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text(draft.client?.fullName ?: "Seleccionar cliente...")
-                }
-                if (canCreateClient) {
-                    Button(onClick = { viewModel.openClientForm() }) {
-                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Nuevo")
-                    }
-                }
-            }
-
-            // Client Dropdown Dialog
-            if (showClientDropdown) {
-                AlertDialog(
-                    onDismissRequest = { showClientDropdown = false },
-                    title = { Text("Seleccionar Cliente") },
-                    text = {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedTextField(
-                                value = clientSearchQuery,
-                                onValueChange = viewModel::setClientSearchQuery,
-                                modifier = Modifier.fillMaxWidth(),
-                                placeholder = { Text("Buscar cliente...") },
-                                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                                singleLine = true
-                            )
-                            if (clients.isEmpty()) {
-                                Column(
-                                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    Text("No se encontró el cliente")
-                                    if (canCreateClient) {
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        Button(onClick = {
-                                            showClientDropdown = false
-                                            viewModel.openClientForm()
-                                        }) {
-                                            Text("+ Crear nuevo cliente")
-                                        }
-                                    }
-                                }
-                            } else {
-                                LazyColumn(
-                                    modifier = Modifier.height(200.dp),
-                                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    items(clients, key = { it.id }) { client ->
-                                        Card(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clickable {
-                                                    viewModel.selectClient(client)
-                                                    showClientDropdown = false
-                                                }
-                                        ) {
-                                            Column(modifier = Modifier.padding(12.dp)) {
-                                                Text(client.fullName, style = MaterialTheme.typography.bodyLarge)
-                                                if (!client.alias.isNullOrBlank()) {
-                                                    Text("Alias: ${client.alias}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    confirmButton = {
-                        TextButton(onClick = { showClientDropdown = false }) {
-                            Text("Cerrar")
-                        }
-                    }
-                )
-            }
-
-            // Web-like Inline Product Addition Card
+            // 2. Cliente (Search bar instead of button)
+            Text("2. Cliente", style = MaterialTheme.typography.titleMedium, color = Color.White)
             Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF103B56)),
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Column(
-                    modifier = Modifier.padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text("Agregar Producto al Pedido", style = MaterialTheme.typography.titleSmall)
-
-                    OutlinedButton(
-                        onClick = { showProductDropdown = true },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(selectedProductForAdd?.let { "${it.code} — ${it.name}" } ?: "Buscar producto...")
-                    }
-
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         OutlinedTextField(
-                            value = addQuantityInput,
-                            onValueChange = viewModel::updateAddQuantity,
-                            label = { Text("Cantidad (Entero)") },
+                            value = clientSearchQuery,
+                            onValueChange = viewModel::setClientSearchQuery,
+                            label = { Text("Buscar o seleccionar cliente...") },
                             modifier = Modifier.weight(1f),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            singleLine = true
-                        )
-
-                        OutlinedTextField(
-                            value = addPriceInput,
-                            onValueChange = { viewModel.addPriceInput.value = it },
-                            label = { Text("Precio unitario") },
-                            modifier = Modifier.weight(1f),
-                            enabled = isAdmin,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                            singleLine = true
-                        )
-
-                        Button(
-                            onClick = { viewModel.addSelectedProductToPresale() },
-                            enabled = selectedProductForAdd != null
-                        ) {
-                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(2.dp))
-                            Text("Agregar")
-                        }
-                    }
-                }
-            }
-
-            // Product Picker Dialog
-            if (showProductDropdown) {
-                AlertDialog(
-                    onDismissRequest = { showProductDropdown = false },
-                    title = { Text("Seleccionar Producto") },
-                    text = {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedTextField(
-                                value = productSearchQuery,
-                                onValueChange = viewModel::setProductSearchQuery,
-                                modifier = Modifier.fillMaxWidth(),
-                                placeholder = { Text("Buscar producto...") },
-                                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                                singleLine = true
+                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = Color(0xFFA8B8C5)) },
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color(0xFF35D5B1),
+                                unfocusedBorderColor = Color(0xFFA8B8C5),
+                                focusedLabelColor = Color(0xFF35D5B1),
+                                unfocusedLabelColor = Color(0xFFA8B8C5),
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
                             )
-                            LazyColumn(
-                                modifier = Modifier.height(250.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                        )
+                        if (canCreateClient) {
+                            Button(
+                                onClick = { viewModel.openClientForm() },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF35D5B1), contentColor = Color(0xFF071E30))
                             ) {
-                                items(products, key = { it.id }) { product ->
-                                    Card(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clickable {
-                                                viewModel.selectProductForAdd(product)
-                                                showProductDropdown = false
-                                            }
-                                    ) {
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(12.dp),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Text(product.name, style = MaterialTheme.typography.bodyLarge)
-                                                Text("Código: ${product.code} | Stock: ${product.availableStock.toInt()}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                            }
-                                            Text("Bs. ${"%.2f".format(product.priceNormal)}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.secondary)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    confirmButton = {
-                        TextButton(onClick = { showProductDropdown = false }) {
-                            Text("Cerrar")
-                        }
-                    }
-                )
-            }
-
-            // Bonus Allocation Panel if earned bonuses exist
-            if (earnedBonuses.isNotEmpty()) {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text("Bonificaciones Ganadas y Asignación", style = MaterialTheme.typography.titleSmall)
-                        earnedBonuses.forEach { (subCatId, earnedQty) ->
-                            val allocatedForSubCat = products.filter { it.subCategoryId == subCatId }.sumOf { allocatedBonuses[it.id] ?: 0 }
-                            val remaining = earnedQty - allocatedForSubCat
-                            Text("Subcategoría [$subCatId] — Ganadas: $earnedQty | Disponibles: $remaining", style = MaterialTheme.typography.bodySmall)
-
-                            products.filter { it.subCategoryId == subCatId }.forEach { prod ->
-                                val currentAlloc = allocatedBonuses[prod.id] ?: 0
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().padding(start = 8.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(prod.name, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        IconButton(onClick = { if (currentAlloc > 0) viewModel.updateBonusAllocation(prod.id, currentAlloc - 1) }) {
-                                            Icon(Icons.Default.Clear, contentDescription = "Menos", modifier = Modifier.size(18.dp))
-                                        }
-                                        Text("$currentAlloc", style = MaterialTheme.typography.bodyMedium)
-                                        IconButton(onClick = { viewModel.updateBonusAllocation(prod.id, currentAlloc + 1) }) {
-                                            Icon(Icons.Default.Add, contentDescription = "Más", modifier = Modifier.size(18.dp))
-                                        }
-                                    }
-                                }
+                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Nuevo")
                             }
                         }
                     }
-                }
-            }
 
-            // Items List Header
-            Text("Productos en Preventa (${draft.items.size})", style = MaterialTheme.typography.titleMedium)
-
-            // Items List
-            if (draft.items.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(120.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("No hay productos agregados en la preventa", color = MaterialTheme.colorScheme.outline)
-                }
-            } else {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    draft.items.forEach { item ->
-                        Card(
+                    if (draft.client != null) {
+                        Surface(
+                            color = Color(0xFF087C69),
+                            shape = MaterialTheme.shapes.small,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text("Seleccionado: ${draft.client?.fullName}", style = MaterialTheme.typography.bodyLarge, color = Color.White)
+                                    if (!draft.client?.alias.isNullOrBlank()) {
+                                        Text("Alias: ${draft.client?.alias}", style = MaterialTheme.typography.bodySmall, color = Color(0xFFA8B8C5))
+                                    }
+                                }
+                                TextButton(onClick = { viewModel.selectClient(null) }) {
+                                    Text("Cambiar", color = Color(0xFF35D5B1))
+                                }
+                            }
+                        }
+                    } else if (clientSearchQuery.isNotBlank() || clients.isNotEmpty()) {
+                        // Inline suggestions list
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { editingItem = item }
+                                .heightIn(max = 180.dp)
+                                .verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            clients.forEach { client ->
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            viewModel.selectClient(client)
+                                            viewModel.setClientSearchQuery("")
+                                        },
+                                    colors = CardDefaults.cardColors(containerColor = Color(0xFF071E30))
+                                ) {
+                                    Column(modifier = Modifier.padding(8.dp)) {
+                                        Text(client.fullName, style = MaterialTheme.typography.bodyMedium, color = Color.White)
+                                        if (!client.alias.isNullOrBlank()) {
+                                            Text("Alias: ${client.alias}", style = MaterialTheme.typography.bodySmall, color = Color(0xFFA8B8C5))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 3. Productos (Search bar and inline product cards)
+            Text("3. Productos", style = MaterialTheme.typography.titleMedium, color = Color.White)
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF103B56)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = productSearchQuery,
+                        onValueChange = viewModel::setProductSearchQuery,
+                        label = { Text("Buscar producto para agregar...") },
+                        modifier = Modifier.fillMaxWidth(),
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = Color(0xFFA8B8C5)) },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Color(0xFF35D5B1),
+                            unfocusedBorderColor = Color(0xFFA8B8C5),
+                            focusedLabelColor = Color(0xFF35D5B1),
+                            unfocusedLabelColor = Color(0xFFA8B8C5),
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
+                        )
+                    )
+
+                    if (products.isNotEmpty()) {
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            items(products, key = { it.id }) { product ->
+                                InlineProductCard(
+                                    product = product,
+                                    isAdmin = isAdmin,
+                                    onAdd = { qty, price ->
+                                        viewModel.selectProductForAdd(product)
+                                        viewModel.updateAddQuantity(qty.toString())
+                                        viewModel.addSelectedProductToPresale()
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Products in Presale List
+            Text("Productos en Preventa (${draft.items.size})", style = MaterialTheme.typography.titleMedium, color = Color.White)
+            if (draft.items.isEmpty()) {
+                Box(modifier = Modifier.fillMaxWidth().height(80.dp), contentAlignment = Alignment.Center) {
+                    Text("No hay productos agregados", color = Color(0xFFA8B8C5))
+                }
+            } else {
+                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    draft.items.forEach { item ->
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF103B56)),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
                             Row(
                                 modifier = Modifier
@@ -476,19 +354,15 @@ fun NewPresaleScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text(item.product.name, style = MaterialTheme.typography.titleSmall)
-                                    Text(
-                                        "Bs. ${"%.2f".format(item.unitPrice)} x ${item.quantity} = Bs. ${"%.2f".format(item.subtotal)}",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.secondary
-                                    )
+                                    Text(item.product.name, style = MaterialTheme.typography.bodyLarge, color = Color.White)
+                                    Text("Bs. ${"%.2f".format(item.unitPrice)} x ${item.quantity} = Bs. ${"%.2f".format(item.subtotal)}", style = MaterialTheme.typography.bodySmall, color = Color(0xFF35D5B1))
                                 }
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     IconButton(onClick = { editingItem = item }) {
-                                        Icon(Icons.Default.Edit, contentDescription = "Editar", modifier = Modifier.size(20.dp))
+                                        Icon(Icons.Default.Edit, contentDescription = "Editar", tint = Color(0xFF35D5B1))
                                     }
                                     IconButton(onClick = { viewModel.removeItem(item.product.id) }) {
-                                        Icon(Icons.Default.Delete, contentDescription = "Eliminar", tint = MaterialTheme.colorScheme.error)
+                                        Icon(Icons.Default.Delete, contentDescription = "Eliminar", tint = Color(0xFFEF5350))
                                     }
                                 }
                             }
@@ -497,13 +371,22 @@ fun NewPresaleScreen(
                 }
             }
 
-            // Observations
+            // Resumen
+            Text("Resumen", style = MaterialTheme.typography.titleMedium, color = Color.White)
             OutlinedTextField(
                 value = draft.observations,
                 onValueChange = viewModel::setObservations,
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("Observaciones de la Preventa") },
-                minLines = 2
+                minLines = 2,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Color(0xFF35D5B1),
+                    unfocusedBorderColor = Color(0xFFA8B8C5),
+                    focusedLabelColor = Color(0xFF35D5B1),
+                    unfocusedLabelColor = Color(0xFFA8B8C5),
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White
+                )
             )
         }
     }
@@ -512,7 +395,7 @@ fun NewPresaleScreen(
     if (isConfirmDialogVisible) {
         AlertDialog(
             onDismissRequest = { viewModel.hideConfirmDialog() },
-            title = { Text(if (viewModel.isEditing) "¿Guardar cambios de la preventa?" else "¿Registrar esta preventa?") },
+            title = { Text("¿Registrar esta preventa?") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("Cliente: ${draft.client?.fullName ?: "N/D"}")
@@ -523,7 +406,7 @@ fun NewPresaleScreen(
             },
             confirmButton = {
                 Button(onClick = { viewModel.registerSale() }) {
-                    Text(if (viewModel.isEditing) "Guardar" else "Registrar")
+                    Text("Registrar")
                 }
             },
             dismissButton = {
@@ -538,7 +421,7 @@ fun NewPresaleScreen(
     registeredSale?.let { sale ->
         AlertDialog(
             onDismissRequest = { viewModel.resetRegisteredSale(); onNavigateBack() },
-            title = { Text(if (viewModel.isEditing) "Preventa actualizada correctamente" else "Preventa registrada correctamente") },
+            title = { Text("Preventa registrada correctamente") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("N.º: ${sale.saleNumber}")
@@ -573,7 +456,7 @@ fun NewPresaleScreen(
                     OutlinedTextField(
                         value = qtyText,
                         onValueChange = { qtyText = it },
-                        label = { Text("Cantidad (Entero)") },
+                        label = { Text("Cantidad") },
                         modifier = Modifier.fillMaxWidth(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         singleLine = true
@@ -587,9 +470,6 @@ fun NewPresaleScreen(
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         singleLine = true
                     )
-                    if (!isAdmin) {
-                        Text("Solo el administrador puede editar los precios.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-                    }
                 }
             },
             confirmButton = {
@@ -736,5 +616,80 @@ fun NewPresaleScreen(
                 }
             }
         )
+    }
+}
+
+@Composable
+fun InlineProductCard(
+    product: Product,
+    isAdmin: Boolean,
+    onAdd: (Int, Double) -> Unit
+) {
+    var qtyStr by remember { mutableStateOf("1") }
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF071E30)),
+        modifier = Modifier
+            .width(180.dp)
+            .height(210.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(8.dp),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                if (!product.imageUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = product.imageUrl,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp)
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp)
+                            .background(Color(0xFF103B56)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.ShoppingCart, contentDescription = null, tint = Color(0xFFA8B8C5))
+                    }
+                }
+                Text(product.name, style = MaterialTheme.typography.bodySmall, color = Color.White, maxLines = 2)
+                Text("Código: ${product.code}", style = MaterialTheme.typography.labelSmall, color = Color(0xFFA8B8C5))
+                Text("Stock: ${product.availableStock.toInt()}", style = MaterialTheme.typography.labelSmall, color = Color(0xFF35D5B1))
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Precio unitario", style = MaterialTheme.typography.labelSmall, color = Color(0xFFA8B8C5))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = qtyStr,
+                        onValueChange = { qtyStr = it },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                    )
+                    Button(
+                        onClick = {
+                            val q = qtyStr.toIntOrNull() ?: 1
+                            onAdd(q, product.priceNormal)
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF35D5B1), contentColor = Color(0xFF071E30)),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text("Añadir", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            }
+        }
     }
 }

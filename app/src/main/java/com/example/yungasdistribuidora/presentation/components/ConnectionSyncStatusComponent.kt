@@ -101,7 +101,10 @@ fun ConnectionSyncStatusComponent(
                     onClick = onRetrySync,
                     colors = ButtonDefaults.textButtonColors(contentColor = textColor)
                 ) {
-                    Text("Sincronizar", style = MaterialTheme.typography.labelSmall)
+                    Text(
+                        text = if (syncState == SyncState.OFFLINE) "Reconectar" else "Sincronizar",
+                        style = MaterialTheme.typography.labelSmall
+                    )
                 }
             }
         }

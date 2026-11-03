@@ -7,6 +7,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -22,6 +23,7 @@ import com.example.yungasdistribuidora.presentation.clients.form.ClientFormViewM
 import com.example.yungasdistribuidora.presentation.clients.list.ClientsScreen
 import com.example.yungasdistribuidora.presentation.clients.list.ClientsViewModel
 import com.example.yungasdistribuidora.presentation.components.ConnectionStatusBanner
+import com.example.yungasdistribuidora.presentation.factory.*
 import com.example.yungasdistribuidora.presentation.lock.AppLockState
 import com.example.yungasdistribuidora.presentation.lock.AppUnlockScreen
 import com.example.yungasdistribuidora.presentation.login.LoginScreen
@@ -39,6 +41,7 @@ import com.example.yungasdistribuidora.presentation.splash.SplashViewModel
 import com.example.yungasdistribuidora.presentation.twofactor.*
 import com.example.yungasdistribuidora.presentation.unauthorized.RolNoDisponibleScreen
 import com.example.yungasdistribuidora.presentation.vendedor.InicioVendedorScreen
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import java.text.SimpleDateFormat
 import java.util.*
@@ -58,6 +61,7 @@ fun AppNavGraph() {
     val biometricAuthManager = app.biometricAuthManager
     val lockState by appLockManager.lockState.collectAsState()
     val activity = LocalContext.current as? FragmentActivity
+    val scope = rememberCoroutineScope()
 
     val initialSession = remember { offlineSessionManager.getSession() }
     var tempRecoveryCodes by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -74,6 +78,14 @@ fun AppNavGraph() {
         navController.navigate(route) {
             launchSingleTop = true
             restoreState = true
+        }
+    }
+
+    val onReconnectAction: () -> Unit = {
+        scope.launch {
+            authRepo.getCurrentUser().onSuccess {
+                isOfflineMode = false
+            }
         }
     }
 
@@ -253,6 +265,7 @@ fun AppNavGraph() {
                         onNavigateToNewPresale = { navController.navigate("new_presale") },
                         onNavigateToMyPresales = { navController.navigate("my_presales") },
                         onNavigate = navigateToTab,
+                        onReconnect = onReconnectAction,
                         onLogout = {
                             runBlocking { authRepo.logout() }
                             appLockManager.clear()
@@ -278,6 +291,7 @@ fun AppNavGraph() {
                         onNavigateToNewPresale = { navController.navigate("new_presale") },
                         onNavigateToMyPresales = { navController.navigate("my_presales") },
                         onNavigate = navigateToTab,
+                        onReconnect = onReconnectAction,
                         onLogout = {
                             runBlocking { authRepo.logout() }
                             appLockManager.clear()
@@ -328,7 +342,7 @@ fun AppNavGraph() {
             // Clients Routes
             composable("clients") {
                 val isAdmin = currentUserRole == UserRole.ADMIN
-                val viewModel = remember { ClientsViewModel(clientRepo, isAdmin) }
+                val viewModel: ClientsViewModel = viewModel(factory = ClientsViewModelFactory(clientRepo, isAdmin))
                 ClientsScreen(
                     viewModel = viewModel,
                     isAdmin = isAdmin,
@@ -346,7 +360,7 @@ fun AppNavGraph() {
                 val clientId = backStackEntry.arguments?.getString("id") ?: ""
                 val canEdit = currentUserRole == UserRole.ADMIN || currentUserRole == UserRole.VENDEDOR
                 val canManageStatus = currentUserRole == UserRole.ADMIN
-                val viewModel = remember { ClientDetailViewModel(clientRepo, clientId) }
+                val viewModel: ClientDetailViewModel = viewModel(factory = ClientDetailViewModelFactory(clientRepo, clientId))
                 ClientDetailScreen(
                     viewModel = viewModel,
                     canEdit = canEdit,
@@ -361,7 +375,7 @@ fun AppNavGraph() {
             }
 
             composable("clients/new") {
-                val viewModel = remember { ClientFormViewModel(clientRepo, null, canEdit = true) }
+                val viewModel: ClientFormViewModel = viewModel(factory = ClientFormViewModelFactory(clientRepo, null, canEdit = true))
                 ClientFormScreen(
                     viewModel = viewModel,
                     isEditing = false,
@@ -381,7 +395,7 @@ fun AppNavGraph() {
                         navController.popBackStack()
                     }
                 } else {
-                    val viewModel = remember { ClientFormViewModel(clientRepo, clientId, canEdit = true) }
+                    val viewModel: ClientFormViewModel = viewModel(factory = ClientFormViewModelFactory(clientRepo, clientId, canEdit = true))
                     ClientFormScreen(
                         viewModel = viewModel,
                         isEditing = true,
@@ -400,7 +414,7 @@ fun AppNavGraph() {
                         navController.popBackStack()
                     }
                 } else {
-                    val viewModel = remember { ProductsViewModel(productRepo) }
+                    val viewModel: ProductsViewModel = viewModel(factory = ProductsViewModelFactory(productRepo))
                     ProductsScreen(
                         viewModel = viewModel,
                         isAdmin = isAdmin,
@@ -422,7 +436,7 @@ fun AppNavGraph() {
                         navController.popBackStack()
                     }
                 } else {
-                    val viewModel = remember { ProductDetailViewModel(productRepo, productId) }
+                    val viewModel: ProductDetailViewModel = viewModel(factory = ProductDetailViewModelFactory(productRepo, productId))
                     ProductDetailScreen(
                         viewModel = viewModel,
                         onNavigateBack = { navController.popBackStack() }
@@ -439,7 +453,9 @@ fun AppNavGraph() {
                         navController.popBackStack()
                     }
                 } else {
-                    val viewModel = remember { NewPresaleViewModel(clientRepo, productRepo, presaleRepo, bonusRuleRepo, isAdmin) }
+                    val viewModel: NewPresaleViewModel = viewModel(
+                        factory = NewPresaleViewModelFactory(clientRepo, productRepo, presaleRepo, bonusRuleRepo, isAdmin)
+                    )
                     NewPresaleScreen(
                         viewModel = viewModel,
                         isAdmin = isAdmin,
@@ -458,7 +474,7 @@ fun AppNavGraph() {
                         navController.popBackStack()
                     }
                 } else {
-                    val viewModel = remember { MyPresalesViewModel(salesRepo) }
+                    val viewModel: MyPresalesViewModel = viewModel(factory = MyPresalesViewModelFactory(salesRepo))
                     MyPresalesScreen(
                         viewModel = viewModel,
                         isAdmin = isAdmin,
@@ -467,24 +483,6 @@ fun AppNavGraph() {
                         onNavigateToNewPresale = { navController.navigate("new_presale") },
                         onNavigate = navigateToTab
                     )
-                }
-            }
-
-            composable(
-                route = "sales/{id}/edit",
-                arguments = listOf(navArgument("id") { type = NavType.StringType })
-            ) { entry ->
-                val id = entry.arguments?.getString("id") ?: ""
-                val allowed = currentUserRole == UserRole.ADMIN || currentUserRole == UserRole.VENDEDOR
-                if (!allowed) {
-                    LaunchedEffect(Unit) { navController.popBackStack() }
-                } else {
-                    val editor = remember(id) {
-                        NewPresaleViewModel(clientRepo, productRepo, presaleRepo, bonusRuleRepo,
-                            currentUserRole == UserRole.ADMIN, editingSaleId = id, salesRepository = salesRepo)
-                    }
-                    NewPresaleScreen(editor, currentUserRole == UserRole.ADMIN, true,
-                        onNavigateBack = { navController.popBackStack() })
                 }
             }
 
@@ -500,12 +498,40 @@ fun AppNavGraph() {
                         navController.popBackStack()
                     }
                 } else {
-                    val viewModel = remember { PresaleDetailViewModel(salesRepo, saleId, isAdmin) }
+                    val viewModel: PresaleDetailViewModel = viewModel(factory = PresaleDetailViewModelFactory(salesRepo, saleId, isAdmin))
                     PresaleDetailScreen(
                         viewModel = viewModel,
                         isAdmin = isAdmin,
                         onNavigateBack = { navController.popBackStack() },
                         onEdit = { navController.navigate("sales/$saleId/edit") }
+                    )
+                }
+            }
+
+            // Edit Presale Route
+            composable(
+                route = "sales/{id}/edit",
+                arguments = listOf(navArgument("id") { type = NavType.StringType })
+            ) { backStackEntry ->
+                val saleId = backStackEntry.arguments?.getString("id") ?: ""
+                val canEdit = currentUserRole == UserRole.ADMIN || currentUserRole == UserRole.VENDEDOR
+                val isAdmin = currentUserRole == UserRole.ADMIN
+                if (!canEdit) {
+                    LaunchedEffect(Unit) {
+                        navController.popBackStack()
+                    }
+                } else {
+                    val viewModel: NewPresaleViewModel = viewModel(
+                        factory = NewPresaleViewModelFactory(
+                            clientRepo, productRepo, presaleRepo, bonusRuleRepo, isAdmin,
+                            editingSaleId = saleId, salesRepository = salesRepo
+                        )
+                    )
+                    NewPresaleScreen(
+                        viewModel = viewModel,
+                        isAdmin = isAdmin,
+                        canCreateClient = true,
+                        onNavigateBack = { navController.popBackStack() }
                     )
                 }
             }

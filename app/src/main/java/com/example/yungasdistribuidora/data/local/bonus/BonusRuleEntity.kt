@@ -11,5 +11,7 @@ data class BonusRuleEntity(
     val bonusQuantity: Int,
     val startDate: String?,
     val endDate: String?,
-    val isActive: Boolean
+    val isActive: Boolean,
+    val createdAt: String? = null,
+    val updatedAt: String? = null
 )

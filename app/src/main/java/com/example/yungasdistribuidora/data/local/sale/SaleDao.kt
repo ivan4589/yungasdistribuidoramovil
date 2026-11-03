@@ -4,10 +4,26 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface SaleDao {
+    @Transaction
+    suspend fun saveCompleteSale(sale: SaleEntity, details: List<SaleDetailEntity>, bonuses: List<SaleBonusEntity>) {
+        insertSale(sale)
+        deleteDetails(sale.id)
+        deleteBonuses(sale.id)
+        insertDetails(details)
+        insertBonuses(bonuses)
+    }
+
+    @Query("DELETE FROM sale_details WHERE saleId = :id")
+    suspend fun deleteDetails(id: String)
+
+    @Query("DELETE FROM sale_bonuses WHERE saleId = :id")
+    suspend fun deleteBonuses(id: String)
+
     @Query("SELECT * FROM sales ORDER BY createdAt DESC")
     fun getAllSales(): Flow<List<SaleEntity>>
 

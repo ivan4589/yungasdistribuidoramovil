@@ -1,8 +1,6 @@
 package com.example.yungasdistribuidora.data.local.session
 
 import android.content.Context
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKey
 import com.google.gson.Gson
 import okhttp3.Cookie
 import okhttp3.CookieJar
@@ -11,17 +9,7 @@ import java.util.concurrent.ConcurrentHashMap
 
 class SecurePersistentCookieJar(context: Context) : CookieJar {
 
-    private val masterKey = MasterKey.Builder(context)
-        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-        .build()
-
-    private val prefs = EncryptedSharedPreferences.create(
-        context,
-        "secure_cookies_prefs",
-        masterKey,
-        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-    )
+    private val prefs = openSecurePreferences(context, "secure_cookies_prefs")
 
     private val gson = Gson()
     private val cookiesMap = ConcurrentHashMap<String, ConcurrentHashMap<String, Cookie>>()
@@ -31,7 +19,7 @@ class SecurePersistentCookieJar(context: Context) : CookieJar {
     }
 
     private fun loadAllCookies() {
-        prefs.all.forEach { (key, value) ->
+        prefs?.all?.forEach { (_, value) ->
             if (value is String) {
                 try {
                     val cookieJson = gson.fromJson(value, CookieWrapper::class.java)
@@ -49,31 +37,31 @@ class SecurePersistentCookieJar(context: Context) : CookieJar {
     override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
         val domain = url.host
         val domainCookies = cookiesMap.getOrPut(domain) { ConcurrentHashMap() }
-        val editor = prefs.edit()
+        val editor = prefs?.edit()
         
         for (cookie in cookies) {
             if (cookie.expiresAt <= System.currentTimeMillis() && cookie.expiresAt != -1L) {
                 domainCookies.remove(cookie.name)
-                editor.remove(getPrefsKey(domain, cookie.name))
+                editor?.remove(getPrefsKey(domain, cookie.name))
             } else {
                 domainCookies[cookie.name] = cookie
                 val wrapper = CookieWrapper.fromCookie(cookie)
-                editor.putString(getPrefsKey(domain, cookie.name), gson.toJson(wrapper))
+                editor?.putString(getPrefsKey(domain, cookie.name), gson.toJson(wrapper))
             }
         }
-        editor.apply()
+        editor?.apply()
     }
 
     override fun loadForRequest(url: HttpUrl): List<Cookie> {
         val currentMillis = System.currentTimeMillis()
         val validCookies = mutableListOf<Cookie>()
-        val editor = prefs.edit()
+        val editor = prefs?.edit()
         
         cookiesMap.forEach { (domain, domainCookies) ->
             if (url.host.equals(domain, ignoreCase = true) || url.host.endsWith(".$domain")) {
                 domainCookies.values.removeIf { cookie ->
                     if (cookie.expiresAt <= currentMillis && cookie.expiresAt != -1L) {
-                        editor.remove(getPrefsKey(domain, cookie.name))
+                        editor?.remove(getPrefsKey(domain, cookie.name))
                         true
                     } else if (cookie.matches(url)) {
                         validCookies.add(cookie)
@@ -84,13 +72,13 @@ class SecurePersistentCookieJar(context: Context) : CookieJar {
                 }
             }
         }
-        editor.apply()
+        editor?.apply()
         return validCookies
     }
 
     fun clear() {
         cookiesMap.clear()
-        prefs.edit().clear().apply()
+        prefs?.edit()?.clear()?.apply()
     }
 
     private fun getPrefsKey(domain: String, name: String): String {

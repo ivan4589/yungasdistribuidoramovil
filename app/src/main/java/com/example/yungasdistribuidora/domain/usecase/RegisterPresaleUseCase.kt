@@ -19,7 +19,10 @@ class RegisterPresaleUseCase {
         dueDateStr: String?,
         allocatedBonuses: List<BonusAllocationRequestDto> = emptyList(),
         earnedBonusesMap: Map<String, Int> = emptyMap(),
-        productSubCategoryMap: Map<String, String> = emptyMap()
+        productSubCategoryMap: Map<String, String> = emptyMap(),
+        reservedQuantities: Map<String, Int> = emptyMap(),
+        existingDiscount: Double? = null,
+        existingDueDate: String? = null
     ): Result<CreateSaleRequestDto> {
         val client = draft.client ?: return Result.failure(Exception("Debe seleccionar un cliente"))
         if (draft.items.isEmpty()) return Result.failure(Exception("Debe agregar al menos un producto"))
@@ -30,17 +33,18 @@ class RegisterPresaleUseCase {
         }
 
         val subtotal = draft.items.sumOf { it.subtotal }
-        if (discountInput < 0) return Result.failure(Exception("El descuento no puede ser negativo"))
+        if (!discountInput.isFinite() || discountInput < 0) return Result.failure(Exception("El descuento debe ser un número no negativo"))
         if (discountInput > subtotal) return Result.failure(Exception("El descuento no puede superar el subtotal"))
 
-        if (!isAdmin && discountInput > 0) {
+        if (!isAdmin && ((existingDiscount != null && discountInput != existingDiscount) ||
+                    (existingDiscount == null && discountInput > 0))) {
             return Result.failure(Exception("Los vendedores no pueden aplicar descuentos"))
         }
 
         for (item in draft.items) {
             if (item.quantity < 1) return Result.failure(Exception("La cantidad de '${item.product.name}' debe ser al menos 1"))
-            if (item.unitPrice < 0) return Result.failure(Exception("El precio unitario de '${item.product.name}' no puede ser negativo"))
-            if (item.quantity > item.product.availableStock.toInt()) {
+            if (!item.unitPrice.isFinite() || item.unitPrice < 0) return Result.failure(Exception("El precio unitario de '${item.product.name}' no es válido"))
+            if (item.quantity > item.product.availableStock.toInt() + (reservedQuantities[item.product.id] ?: 0)) {
                 return Result.failure(Exception("Stock insuficiente para '${item.product.name}'. Disponible: ${item.product.availableStock.toInt()}"))
             }
         }
@@ -87,7 +91,10 @@ class RegisterPresaleUseCase {
                 if (dueDateStr.isNullOrBlank()) {
                     return Result.failure(Exception("La fecha de vencimiento es obligatoria para crédito"))
                 }
-                try {
+                if (existingDueDate != null && existingDueDate.take(10) == dueDateStr) {
+                    // Omit the unchanged date in PATCH; do not reject a previously valid credit date.
+                    finalDueDate = null
+                } else try {
                     val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).apply { isLenient = false }
                     val dueDate = sdf.parse(dueDateStr) ?: return Result.failure(Exception("Fecha inválida"))
                     

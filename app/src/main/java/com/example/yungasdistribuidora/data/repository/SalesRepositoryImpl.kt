@@ -5,6 +5,7 @@ import com.example.yungasdistribuidora.data.mapper.SaleMapper
 import com.example.yungasdistribuidora.data.remote.api.SalesApi
 import com.example.yungasdistribuidora.data.remote.dto.CreateSaleRequestDto
 import com.example.yungasdistribuidora.data.remote.dto.SaleResponseDto
+import com.example.yungasdistribuidora.data.remote.dto.*
 import com.example.yungasdistribuidora.domain.repository.SalesRepository
 import com.example.yungasdistribuidora.util.ErrorMapper
 import kotlinx.coroutines.flow.Flow
@@ -24,9 +25,7 @@ class SalesRepositoryImpl(
                 val entity = SaleMapper.toEntity(dto)
                 val details = SaleMapper.toDetailEntities(dto.id, dto.details)
                 val bonuses = SaleMapper.toBonusEntities(dto.id, dto.bonuses)
-                saleDao.insertSale(entity)
-                saleDao.insertDetails(details)
-                saleDao.insertBonuses(bonuses)
+                saleDao.saveCompleteSale(entity, details, bonuses)
                 Result.success(dto)
             } else {
                 Result.failure(Exception(ErrorMapper.mapHttpCode(response.code())))
@@ -71,9 +70,7 @@ class SalesRepositoryImpl(
                     val entity = SaleMapper.toEntity(dto)
                     val details = SaleMapper.toDetailEntities(dto.id, dto.details)
                     val bonuses = SaleMapper.toBonusEntities(dto.id, dto.bonuses)
-                    saleDao.insertSale(entity)
-                    saleDao.insertDetails(details)
-                    saleDao.insertBonuses(bonuses)
+                    saleDao.saveCompleteSale(entity, details, bonuses)
                 }
                 Result.success(Unit)
             } else {
@@ -92,11 +89,10 @@ class SalesRepositoryImpl(
                 val entity = SaleMapper.toEntity(dto)
                 val details = SaleMapper.toDetailEntities(dto.id, dto.details)
                 val bonuses = SaleMapper.toBonusEntities(dto.id, dto.bonuses)
-                saleDao.insertSale(entity)
-                saleDao.insertDetails(details)
-                saleDao.insertBonuses(bonuses)
+                saleDao.saveCompleteSale(entity, details, bonuses)
                 Result.success(dto)
             } else {
+                if (response.code() in 400..499) return Result.failure(Exception(ErrorMapper.mapHttpCode(response.code())))
                 val localEntity = saleDao.getSaleById(id)
                 if (localEntity != null) {
                     val details = saleDao.getSaleDetails(id)
@@ -120,15 +116,13 @@ class SalesRepositoryImpl(
 
     override suspend fun updateSale(idempotencyKey: String, id: String, request: CreateSaleRequestDto): Result<SaleResponseDto> {
         return try {
-            val response = salesApi.updateSale(idempotencyKey, id, request)
+            val response = salesApi.updateSale(idempotencyKey, id, request.forUpdate())
             if (response.isSuccessful && response.body() != null) {
                 val dto = response.body()!!
                 val entity = SaleMapper.toEntity(dto)
                 val details = SaleMapper.toDetailEntities(dto.id, dto.details)
                 val bonuses = SaleMapper.toBonusEntities(dto.id, dto.bonuses)
-                saleDao.insertSale(entity)
-                saleDao.insertDetails(details)
-                saleDao.insertBonuses(bonuses)
+                saleDao.saveCompleteSale(entity, details, bonuses)
                 Result.success(dto)
             } else {
                 Result.failure(Exception(ErrorMapper.mapHttpCode(response.code())))
@@ -144,7 +138,7 @@ class SalesRepositoryImpl(
             if (response.isSuccessful && response.body() != null) {
                 val dto = response.body()!!
                 val entity = SaleMapper.toEntity(dto)
-                saleDao.insertSale(entity)
+                saleDao.saveCompleteSale(entity, SaleMapper.toDetailEntities(dto.id, dto.details), SaleMapper.toBonusEntities(dto.id, dto.bonuses))
                 Result.success(dto)
             } else {
                 Result.failure(Exception(ErrorMapper.mapHttpCode(response.code())))
@@ -160,7 +154,7 @@ class SalesRepositoryImpl(
             if (response.isSuccessful && response.body() != null) {
                 val dto = response.body()!!
                 val entity = SaleMapper.toEntity(dto)
-                saleDao.insertSale(entity)
+                saleDao.saveCompleteSale(entity, SaleMapper.toDetailEntities(dto.id, dto.details), SaleMapper.toBonusEntities(dto.id, dto.bonuses))
                 Result.success(dto)
             } else {
                 Result.failure(Exception(ErrorMapper.mapHttpCode(response.code())))
@@ -170,14 +164,38 @@ class SalesRepositoryImpl(
         }
     }
 
-    override suspend fun sendWhatsapp(id: String, resend: Boolean): Result<Unit> {
+    override suspend fun sendWhatsapp(id: String, resend: Boolean): Result<WhatsAppDeliverySummary> {
         return try {
-            val response = salesApi.sendWhatsapp(id, mapOf("resend" to resend))
-            if (response.isSuccessful) {
-                Result.success(Unit)
-            } else {
-                Result.failure(Exception(ErrorMapper.mapHttpCode(response.code())))
+            // Read authoritative state; do not send from an outdated offline sale.
+            val saleResponse = salesApi.getSaleById(id)
+            if (!saleResponse.isSuccessful) return Result.failure(Exception(ErrorMapper.mapHttpCode(saleResponse.code())))
+            val sale = saleResponse.body() ?: return Result.failure(Exception("No se pudo leer la venta"))
+            if (sale.status != "CONFIRMED") return Result.failure(Exception("Confirma la preventa antes de enviar WhatsApp"))
+            val clientResponse = salesApi.getWhatsAppClient(sale.clientId)
+            val contactsResponse = salesApi.getWhatsAppContacts(sale.clientId)
+            if (!clientResponse.isSuccessful || !contactsResponse.isSuccessful) {
+                return Result.failure(Exception("No se pudieron cargar todos los contactos. No se envió ningún mensaje."))
             }
+            val client = clientResponse.body() ?: return Result.failure(Exception("Cliente no disponible"))
+            val contacts = contactsResponse.body() ?: return Result.failure(Exception("Contactos no disponibles"))
+            val recipients = eligibleWhatsAppRecipients(client, contacts)
+            if (recipients.isEmpty()) return Result.failure(Exception("No hay contactos activos con teléfono y autorización para WhatsApp"))
+            val results = mutableListOf<WhatsAppRecipientResult>()
+            for (batch in recipients.chunked(20)) {
+                val response = try { salesApi.sendWhatsapp(id, WhatsAppBatchRequest(batch, resend)) }
+                catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                catch (_: Exception) {
+                    results += batch.map { WhatsAppRecipientResult(it, "UNKNOWN", "Conexión interrumpida; revisa el historial antes de reintentar") }
+                    continue
+                }
+                val returned = if (response.isSuccessful) response.body()?.results.orEmpty() else emptyList()
+                results += batch.map { recipient ->
+                    returned.firstOrNull { it.recipient == recipient }
+                        ?: WhatsAppRecipientResult(recipient, "UNKNOWN", "Resultado no confirmado; revisa el historial antes de reintentar")
+                }
+            }
+            Result.success(WhatsAppDeliverySummary(results))
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e
         } catch (e: Exception) {
             Result.failure(Exception(ErrorMapper.mapException(e)))
         }

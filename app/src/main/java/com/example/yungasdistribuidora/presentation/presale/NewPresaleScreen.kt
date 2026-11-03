@@ -48,6 +48,7 @@ fun NewPresaleScreen(
     val isClientFormOpen by viewModel.isClientFormOpen.collectAsState()
     val isConfirmDialogVisible by viewModel.isConfirmDialogVisible.collectAsState()
     val isSubmitting by viewModel.isSubmitting.collectAsState()
+    val isLoading by viewModel.isLoading.collectAsState()
     val registeredSale by viewModel.registeredSale.collectAsState()
 
     val subtotal by viewModel.subtotal.collectAsState()
@@ -71,7 +72,7 @@ fun NewPresaleScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Nueva Preventa") },
+                title = { Text(if (viewModel.isEditing) "Editar Preventa" else "Nueva Preventa") },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Volver")
@@ -97,19 +98,25 @@ fun NewPresaleScreen(
                     }
                     Button(
                         onClick = { viewModel.showConfirmDialog() },
-                        enabled = draft.client != null && draft.items.isNotEmpty() && !isSubmitting
+                        enabled = draft.client != null && draft.items.isNotEmpty() && !isSubmitting && !isLoading
                     ) {
                         if (isSubmitting) {
                             CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary)
                             Spacer(modifier = Modifier.width(8.dp))
                         }
-                        Text("Registrar Preventa")
+                        Text(if (viewModel.isEditing) "Guardar cambios" else "Registrar Preventa")
                     }
                 }
             }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { innerPadding ->
+        if (isLoading || isSubmitting) {
+            Box(Modifier.fillMaxSize().padding(innerPadding), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+            return@Scaffold
+        }
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -118,13 +125,14 @@ fun NewPresaleScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            if (viewModel.isEditing) Text("Editar la preventa no registra ni modifica pagos existentes.")
             // Modality Selector
             Text("Modalidad de Venta *", style = MaterialTheme.typography.labelMedium)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                SaleModality.entries.forEach { modality ->
+                SaleModality.entries.filter { !viewModel.isEditing || it != SaleModality.CONTADO }.forEach { modality ->
                     FilterChip(
                         selected = draft.modality == modality,
                         onClick = { viewModel.setModality(modality) },
@@ -504,7 +512,7 @@ fun NewPresaleScreen(
     if (isConfirmDialogVisible) {
         AlertDialog(
             onDismissRequest = { viewModel.hideConfirmDialog() },
-            title = { Text("¿Registrar esta preventa?") },
+            title = { Text(if (viewModel.isEditing) "¿Guardar cambios de la preventa?" else "¿Registrar esta preventa?") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("Cliente: ${draft.client?.fullName ?: "N/D"}")
@@ -515,7 +523,7 @@ fun NewPresaleScreen(
             },
             confirmButton = {
                 Button(onClick = { viewModel.registerSale() }) {
-                    Text("Registrar")
+                    Text(if (viewModel.isEditing) "Guardar" else "Registrar")
                 }
             },
             dismissButton = {
@@ -530,7 +538,7 @@ fun NewPresaleScreen(
     registeredSale?.let { sale ->
         AlertDialog(
             onDismissRequest = { viewModel.resetRegisteredSale(); onNavigateBack() },
-            title = { Text("Preventa registrada correctamente") },
+            title = { Text(if (viewModel.isEditing) "Preventa actualizada correctamente" else "Preventa registrada correctamente") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("N.º: ${sale.saleNumber}")

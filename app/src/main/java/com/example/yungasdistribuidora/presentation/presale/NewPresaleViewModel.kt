@@ -11,6 +11,7 @@ import com.example.yungasdistribuidora.domain.repository.BonusRuleRepository
 import com.example.yungasdistribuidora.domain.repository.ClientRepository
 import com.example.yungasdistribuidora.domain.repository.PresaleRepository
 import com.example.yungasdistribuidora.domain.repository.ProductRepository
+import com.example.yungasdistribuidora.domain.repository.SalesRepository
 import com.example.yungasdistribuidora.domain.usecase.CalculateBonusUseCase
 import com.example.yungasdistribuidora.domain.usecase.CalculateProductPriceUseCase
 import com.example.yungasdistribuidora.domain.usecase.RegisterPresaleUseCase
@@ -26,7 +27,9 @@ class NewPresaleViewModel(
     private val isAdmin: Boolean = false,
     private val calculateProductPriceUseCase: CalculateProductPriceUseCase = CalculateProductPriceUseCase(),
     private val calculateBonusUseCase: CalculateBonusUseCase = CalculateBonusUseCase(),
-    private val registerPresaleUseCase: RegisterPresaleUseCase = RegisterPresaleUseCase()
+    private val registerPresaleUseCase: RegisterPresaleUseCase = RegisterPresaleUseCase(),
+    private val editingSaleId: String? = null,
+    private val salesRepository: SalesRepository? = null
 ) : ViewModel() {
 
     private val _draft = MutableStateFlow(PresaleDraft())
@@ -85,6 +88,9 @@ class NewPresaleViewModel(
     val errorMessage = _errorMessage.asStateFlow()
 
     private var idempotencyKey: String = UUID.randomUUID().toString()
+    val isEditing: Boolean get() = editingSaleId != null
+    private var originalSale: SaleResponseDto? = null
+    private var lastSubmittedRequest: com.example.yungasdistribuidora.data.remote.dto.CreateSaleRequestDto? = null
 
     val filteredClients = combine(_clients, _clientSearchQuery) { list, query ->
         if (query.isBlank()) list
@@ -117,6 +123,33 @@ class NewPresaleViewModel(
 
     init {
         loadInitialData()
+        if (isEditing) loadForEditing()
+    }
+
+    private fun loadForEditing() {
+        viewModelScope.launch {
+            _isLoading.value = true
+            try {
+                val sale = requireNotNull(salesRepository).getSaleById(requireNotNull(editingSaleId)).getOrThrow()
+                require(sale.status == "PENDING") { "Solo se pueden editar preventas pendientes" }
+                productRepository.refreshCatalog().getOrThrow()
+                val client = clientRepository.getClientById(sale.clientId).getOrThrow()
+                val items = sale.details.orEmpty().map { detail ->
+                    val product = productRepository.getProductById(detail.productId).getOrThrow()
+                        ?: error("No se pudo cargar ${detail.productName ?: detail.productId}")
+                    PresaleItem(product, detail.quantity, detail.unitPrice)
+                }
+                originalSale = sale
+                _draft.value = PresaleDraft(client, items,
+                    if (sale.saleType == "CREDIT") SaleModality.CREDITO else SaleModality.POR_COBRAR,
+                    sale.observations.orEmpty())
+                discountInput.value = sale.discount.toString()
+                dueDateInput.value = sale.dueDate?.take(10).orEmpty()
+                _allocatedBonuses.value = sale.bonuses.orEmpty().associate { it.productId to it.quantity }
+            } catch (e: Exception) {
+                _errorMessage.value = e.message ?: "No se pudo cargar la preventa para editar"
+            } finally { _isLoading.value = false }
+        }
     }
 
     private fun loadInitialData() {
@@ -142,7 +175,7 @@ class NewPresaleViewModel(
                     _bonusRules.value = it
                 }
             }
-            _isLoading.value = false
+            if (!isEditing) _isLoading.value = false
         }
     }
 
@@ -299,7 +332,11 @@ class NewPresaleViewModel(
     }
 
     fun registerSale() {
-        if (_isSubmitting.value) return
+        if (_isSubmitting.value || _isLoading.value) return
+        if (isEditing && originalSale == null) {
+            _errorMessage.value = "La preventa no está disponible para editar"
+            return
+        }
         val discVal = discountInput.value.toDoubleOrNull() ?: 0.0
 
         val allocatedList = _allocatedBonuses.value.map { (prodId, qty) -> BonusAllocationRequestDto(prodId, qty) }
@@ -313,8 +350,11 @@ class NewPresaleViewModel(
             paymentReference = paymentReferenceInput.value,
             dueDateStr = dueDateInput.value,
             allocatedBonuses = allocatedList,
-            earnedBonusesMap = earnedBonuses.value,
-            productSubCategoryMap = productSubCategoryMap
+            earnedBonusesMap = calculateBonusUseCase.calculate(_bonusRules.value, _draft.value.items),
+            productSubCategoryMap = productSubCategoryMap,
+            reservedQuantities = originalSale?.details.orEmpty().associate { it.productId to it.quantity },
+            existingDiscount = originalSale?.discount,
+            existingDueDate = originalSale?.takeIf { it.saleType == "CREDIT" }?.dueDate
         )
 
         if (validationResult.isFailure) {
@@ -324,13 +364,17 @@ class NewPresaleViewModel(
         }
 
         val requestDto = validationResult.getOrThrow()
+        if (lastSubmittedRequest != null && lastSubmittedRequest != requestDto) idempotencyKey = UUID.randomUUID().toString()
+        lastSubmittedRequest = requestDto
 
         viewModelScope.launch {
             _isSubmitting.value = true
             _isConfirmDialogVisible.value = false
             _errorMessage.value = null
 
-            val result = presaleRepository.registerSale(idempotencyKey, requestDto)
+            val result = if (isEditing) {
+                requireNotNull(salesRepository).updateSale(idempotencyKey, requireNotNull(editingSaleId), requestDto)
+            } else presaleRepository.registerSale(idempotencyKey, requestDto)
             result.onSuccess { saleResponse ->
                 _registeredSale.value = saleResponse
                 _draft.value = PresaleDraft()

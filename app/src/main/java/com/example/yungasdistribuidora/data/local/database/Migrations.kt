@@ -130,3 +130,47 @@ val MIGRATION_3_4 = object : Migration(3, 4) {
         db.execSQL("ALTER TABLE sales ADD COLUMN cancelledPdfUrl TEXT")
     }
 }
+
+// Version 4 existed both with and without this column: fresh installs used the
+// old entity, while upgraded installs used MIGRATION_3_4. Reconcile both without
+// dropping sales, and bump the version so Room also refreshes its identity hash.
+val MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        val hasCancelledPdfUrl = db.query("PRAGMA table_info(`sales`)").use { cursor ->
+            val nameIndex = cursor.getColumnIndexOrThrow("name")
+            var found = false
+            while (cursor.moveToNext()) {
+                if (cursor.getString(nameIndex) == "cancelledPdfUrl") found = true
+            }
+            found
+        }
+        if (!hasCancelledPdfUrl) {
+            db.execSQL("ALTER TABLE sales ADD COLUMN cancelledPdfUrl TEXT")
+        }
+        // Old migrated databases used minimumQuantity/createdAt/updatedAt;
+        // fresh databases used minQuantity/startDate/endDate. Preserve both.
+        val columns = db.query("PRAGMA table_info(`bonus_rules`)").use { cursor ->
+            val nameIndex = cursor.getColumnIndexOrThrow("name")
+            buildSet { while (cursor.moveToNext()) add(cursor.getString(nameIndex)) }
+        }
+        val quantity = when {
+            "minQuantity" in columns -> "minQuantity"
+            "minimumQuantity" in columns -> "minimumQuantity"
+            else -> error("Unknown bonus_rules schema: no minimum quantity")
+        }
+        fun nullableColumn(name: String) = if (name in columns) "`$name`" else "NULL"
+        db.execSQL("""CREATE TABLE bonus_rules_v5 (
+            id TEXT PRIMARY KEY NOT NULL, subCategoryId TEXT NOT NULL,
+            minQuantity INTEGER NOT NULL, bonusQuantity INTEGER NOT NULL,
+            startDate TEXT, endDate TEXT, isActive INTEGER NOT NULL,
+            createdAt TEXT, updatedAt TEXT
+        )""")
+        db.execSQL("""INSERT INTO bonus_rules_v5
+            SELECT id, subCategoryId, `$quantity`, bonusQuantity,
+            ${nullableColumn("startDate")}, ${nullableColumn("endDate")}, isActive,
+            ${nullableColumn("createdAt")}, ${nullableColumn("updatedAt")}
+            FROM bonus_rules""")
+        db.execSQL("DROP TABLE bonus_rules")
+        db.execSQL("ALTER TABLE bonus_rules_v5 RENAME TO bonus_rules")
+    }
+}

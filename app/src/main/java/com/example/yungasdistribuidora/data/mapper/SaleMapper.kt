@@ -28,7 +28,8 @@ object SaleMapper {
             sellerId = dto.sellerId,
             sellerName = dto.sellerName,
             createdAt = dto.createdAt,
-            updatedAt = dto.updatedAt
+            updatedAt = dto.updatedAt,
+            cancelledPdfUrl = dto.cancelledPdfUrl
         )
     }
 
@@ -102,7 +103,8 @@ object SaleMapper {
                 )
             },
             createdAt = entity.createdAt,
-            updatedAt = entity.updatedAt
+            updatedAt = entity.updatedAt,
+            cancelledPdfUrl = entity.cancelledPdfUrl
         )
     }
 }

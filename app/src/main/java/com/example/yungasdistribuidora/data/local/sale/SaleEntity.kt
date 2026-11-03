@@ -25,7 +25,8 @@ data class SaleEntity(
     val sellerId: String?,
     val sellerName: String?,
     val createdAt: String,
-    val updatedAt: String
+    val updatedAt: String,
+    val cancelledPdfUrl: String? = null
 )
 
 @Entity(

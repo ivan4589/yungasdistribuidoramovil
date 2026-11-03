@@ -3,7 +3,7 @@ package com.example.yungasdistribuidora.presentation.sales
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
-import androidx.core.content.FileProvider
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.yungasdistribuidora.data.remote.dto.SaleResponseDto
@@ -11,7 +11,8 @@ import com.example.yungasdistribuidora.domain.repository.SalesRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.util.*
 
 class PresaleDetailViewModel(
@@ -51,6 +52,7 @@ class PresaleDetailViewModel(
     }
 
     fun confirmSale() {
+        if (_isLoading.value || _sale.value?.status != "PENDING") return
         viewModelScope.launch {
             _isLoading.value = true
             salesRepository.confirmSale(idempotencyKey, saleId).onSuccess {
@@ -83,10 +85,11 @@ class PresaleDetailViewModel(
     }
 
     fun sendWhatsapp(resend: Boolean) {
+        if (_isLoading.value || _sale.value?.status != "CONFIRMED") return
         viewModelScope.launch {
             _isLoading.value = true
-            salesRepository.sendWhatsapp(saleId, resend).onSuccess {
-                _successMessage.value = "Mensaje de WhatsApp enviado"
+            salesRepository.sendWhatsapp(saleId, resend).onSuccess { summary ->
+                _successMessage.value = summary.message()
             }.onFailure {
                 _errorMessage.value = it.message ?: "Error al enviar WhatsApp"
             }
@@ -94,26 +97,32 @@ class PresaleDetailViewModel(
         }
     }
 
-    fun downloadAndOpenPdf(context: Context) {
+    fun downloadAndOpenPdf(context: Context, destination: Uri) {
+        if (_isLoading.value || _sale.value?.status != "CONFIRMED") return
         viewModelScope.launch {
             _isLoading.value = true
             salesRepository.downloadPdf(saleId).onSuccess { body ->
                 try {
-                    val file = File(context.cacheDir, "preventa_$saleId.pdf")
-                    body.byteStream().use { input ->
-                        file.outputStream().use { output ->
-                            input.copyTo(output)
+                    withContext(Dispatchers.IO) {
+                        body.use {
+                            val bytes = it.bytes()
+                            require(bytes.size >= 5 && bytes.take(5).toByteArray().toString(Charsets.US_ASCII) == "%PDF-") {
+                                "El servidor no devolvió un PDF válido"
+                            }
+                            val output = context.contentResolver.openOutputStream(destination, "w")
+                                ?: error("No se pudo abrir el destino seleccionado")
+                            output.use { stream -> stream.write(bytes) }
                         }
                     }
-                    val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                    _successMessage.value = "PDF descargado en la ubicación seleccionada"
                     val intent = Intent(Intent.ACTION_VIEW).apply {
-                        setDataAndType(uri, "application/pdf")
+                        setDataAndType(destination, "application/pdf")
                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     }
                     try {
                         context.startActivity(Intent.createChooser(intent, "Ver PDF de preventa"))
                     } catch (e: ActivityNotFoundException) {
-                        _errorMessage.value = "No se encontró ninguna aplicación para ver archivos PDF en este dispositivo."
+                        _successMessage.value = "PDF guardado. Instala un lector de PDF para abrirlo."
                     }
                 } catch (e: Exception) {
                     _errorMessage.value = "Error al abrir el PDF: ${e.message}"

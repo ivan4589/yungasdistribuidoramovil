@@ -213,4 +213,69 @@ class SalesRepositoryImpl(
             Result.failure(Exception(ErrorMapper.mapException(e)))
         }
     }
+
+    override suspend fun startDelivery(id: String): Result<DeliveryResponseDto> {
+        return try {
+            val response = salesApi.startDelivery(id)
+            if (response.isSuccessful && response.body() != null) {
+                Result.success(response.body()!!)
+            } else {
+                Result.failure(Exception(ErrorMapper.mapHttpCode(response.code())))
+            }
+        } catch (e: Exception) {
+            Result.failure(Exception(ErrorMapper.mapException(e)))
+        }
+    }
+
+    override suspend fun getDelivery(id: String): Result<DeliveryResponseDto> {
+        return try {
+            val response = salesApi.getDelivery(id)
+            if (response.isSuccessful && response.body() != null) {
+                Result.success(response.body()!!)
+            } else {
+                Result.failure(Exception(ErrorMapper.mapHttpCode(response.code())))
+            }
+        } catch (e: Exception) {
+            Result.failure(Exception(ErrorMapper.mapException(e)))
+        }
+    }
+
+    override suspend fun postDeliveryEvent(idempotencyKey: String, id: String, request: DeliveryEventRequestDto): Result<DeliveryResponseDto> {
+        return try {
+            val response = salesApi.postDeliveryEvent(idempotencyKey, id, request)
+            if (response.isSuccessful && response.body() != null) {
+                Result.success(response.body()!!)
+            } else {
+                Result.failure(Exception(ErrorMapper.mapHttpCode(response.code())))
+            }
+        } catch (e: Exception) {
+            Result.failure(Exception(ErrorMapper.mapException(e)))
+        }
+    }
+
+    override suspend fun updateDeliveryQuantity(id: String, request: UpdateDeliveryQuantityRequestDto): Result<DeliveryResponseDto> {
+        return try {
+            val response = salesApi.updateDeliveryQuantity(id, request)
+            if (response.isSuccessful && response.body() != null) {
+                Result.success(response.body()!!)
+            } else {
+                Result.failure(Exception(ErrorMapper.mapHttpCode(response.code())))
+            }
+        } catch (e: Exception) {
+            Result.failure(Exception(ErrorMapper.mapException(e)))
+        }
+    }
+
+    override suspend fun getRealtimeAccess(): Result<RealtimeAccessDto> {
+        return try {
+            val response = salesApi.getRealtimeAccess()
+            if (response.isSuccessful && response.body() != null) {
+                Result.success(response.body()!!)
+            } else {
+                Result.failure(Exception(ErrorMapper.mapHttpCode(response.code())))
+            }
+        } catch (e: Exception) {
+            Result.failure(Exception(ErrorMapper.mapException(e)))
+        }
+    }
 }

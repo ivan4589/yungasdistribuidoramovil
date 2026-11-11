@@ -63,4 +63,32 @@ interface SalesApi {
     suspend fun downloadPdf(
         @Path("id") id: String
     ): Response<ResponseBody>
+
+    @POST("sales/{id}/delivery/start")
+    suspend fun startDelivery(@Path("id") id: String): Response<DeliveryResponseDto>
+
+    @GET("sales/{id}/delivery")
+    suspend fun getDelivery(@Path("id") id: String): Response<DeliveryResponseDto>
+
+    @POST("sales/{id}/delivery/events")
+    suspend fun postDeliveryEvent(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Path("id") id: String,
+        @Body request: DeliveryEventRequestDto
+    ): Response<DeliveryResponseDto>
+
+    @PATCH("sales/{id}/delivery/quantity")
+    suspend fun updateDeliveryQuantity(
+        @Path("id") id: String,
+        @Body request: UpdateDeliveryQuantityRequestDto
+    ): Response<DeliveryResponseDto>
+
+    @PATCH("sales/{id}/delivery/confirm")
+    suspend fun confirmDelivery(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Path("id") id: String
+    ): Response<SaleResponseDto>
+
+    @GET("realtime/access")
+    suspend fun getRealtimeAccess(): Response<RealtimeAccessDto>
 }

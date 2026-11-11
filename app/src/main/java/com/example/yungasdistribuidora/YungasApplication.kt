@@ -13,6 +13,11 @@ import com.example.yungasdistribuidora.presentation.lock.AppLifecycleObserver
 import com.example.yungasdistribuidora.presentation.lock.AppLockManager
 import com.example.yungasdistribuidora.util.BiometricAuthManager
 import com.example.yungasdistribuidora.util.BiometricAuthManagerImpl
+import com.example.yungasdistribuidora.data.remote.realtime.SupabaseRealtimeManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -78,6 +83,11 @@ class YungasApplication : Application() {
     lateinit var biometricAuthManager: BiometricAuthManager
         private set
 
+    lateinit var realtimeManager: SupabaseRealtimeManager
+        private set
+
+    private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     override fun onCreate() {
         super.onCreate()
         instance = this
@@ -136,6 +146,13 @@ class YungasApplication : Application() {
         salesApi = retrofit.create(SalesApi::class.java)
         salesRepository = SalesRepositoryImpl(salesApi, database.saleDao())
         presaleRepository = salesRepository
+
+        realtimeManager = SupabaseRealtimeManager(salesApi) {
+            applicationScope.launch {
+                salesRepository.refreshSales()
+            }
+        }
+        realtimeManager.start()
 
         appLockManager = AppLockManager(authRepository, offlineSessionManager)
         biometricAuthManager = BiometricAuthManagerImpl(this)

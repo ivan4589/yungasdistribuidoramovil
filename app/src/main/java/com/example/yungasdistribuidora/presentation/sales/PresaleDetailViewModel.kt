@@ -6,7 +6,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.yungasdistribuidora.data.remote.dto.SaleResponseDto
+import com.example.yungasdistribuidora.data.remote.dto.*
 import com.example.yungasdistribuidora.domain.repository.SalesRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,6 +24,9 @@ class PresaleDetailViewModel(
     private val _sale = MutableStateFlow<SaleResponseDto?>(null)
     val sale = _sale.asStateFlow()
 
+    private val _delivery = MutableStateFlow<DeliveryResponseDto?>(null)
+    val delivery = _delivery.asStateFlow()
+
     private val _isLoading = MutableStateFlow(false)
     val isLoading = _isLoading.asStateFlow()
 
@@ -37,6 +40,7 @@ class PresaleDetailViewModel(
 
     init {
         loadSale()
+        loadDelivery()
     }
 
     fun loadSale() {
@@ -51,16 +55,73 @@ class PresaleDetailViewModel(
         }
     }
 
+    fun loadDelivery() {
+        viewModelScope.launch {
+            salesRepository.getDelivery(saleId).onSuccess {
+                _delivery.value = it
+            }.onFailure {
+                // If delivery not started yet or 404, that's fine
+            }
+        }
+    }
+
+    fun startDelivery() {
+        if (_isLoading.value) return
+        viewModelScope.launch {
+            _isLoading.value = true
+            salesRepository.startDelivery(saleId).onSuccess {
+                _delivery.value = it
+                _successMessage.value = "Entrega iniciada"
+            }.onFailure {
+                _errorMessage.value = it.message ?: "Error al iniciar entrega"
+            }
+            _isLoading.value = false
+        }
+    }
+
+    fun postDeliveryEvent(type: String, quantity: Int?, productId: String?, observations: String?) {
+        if (_isLoading.value) return
+        viewModelScope.launch {
+            _isLoading.value = true
+            val req = DeliveryEventRequestDto(type, quantity, productId, observations)
+            salesRepository.postDeliveryEvent(idempotencyKey, saleId, req).onSuccess {
+                _delivery.value = it
+                _successMessage.value = "Evento de entrega registrado"
+                idempotencyKey = UUID.randomUUID().toString()
+                loadSale()
+            }.onFailure {
+                _errorMessage.value = it.message ?: "Error al registrar evento de entrega"
+            }
+            _isLoading.value = false
+        }
+    }
+
+    fun updateDeliveryQuantity(productId: String, quantity: Int, expectedRevision: Int) {
+        if (_isLoading.value) return
+        viewModelScope.launch {
+            _isLoading.value = true
+            val req = UpdateDeliveryQuantityRequestDto(productId, quantity, expectedRevision)
+            salesRepository.updateDeliveryQuantity(saleId, req).onSuccess {
+                _delivery.value = it
+                _successMessage.value = "Cantidad actualizada"
+            }.onFailure {
+                _errorMessage.value = it.message ?: "Error al actualizar cantidad (revisión desactualizada)"
+            }
+            _isLoading.value = false
+        }
+    }
+
     fun confirmSale() {
-        if (_isLoading.value || _sale.value?.status != "PENDING") return
+        if (_isLoading.value) return
         viewModelScope.launch {
             _isLoading.value = true
             salesRepository.confirmSale(idempotencyKey, saleId).onSuccess {
                 _sale.value = it
-                _successMessage.value = "Preventa confirmada exitosamente"
+                _successMessage.value = "Venta confirmada exitosamente"
                 idempotencyKey = UUID.randomUUID().toString()
+                loadDelivery()
             }.onFailure {
-                _errorMessage.value = it.message ?: "Error al confirmar la preventa"
+                _errorMessage.value = it.message ?: "Error al confirmar la venta"
             }
             _isLoading.value = false
         }

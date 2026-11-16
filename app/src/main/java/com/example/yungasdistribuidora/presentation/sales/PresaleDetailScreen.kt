@@ -13,7 +13,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import com.example.yungasdistribuidora.data.remote.dto.DeliveryItemDto
+import com.example.yungasdistribuidora.data.remote.dto.DeliveryProductDto
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -29,14 +29,14 @@ fun PresaleDetailScreen(
     val errorMessage by viewModel.errorMessage.collectAsState()
     val successMessage by viewModel.successMessage.collectAsState()
     val context = LocalContext.current
+
     var confirmWhatsApp by remember { mutableStateOf(false) }
     var showDeliveryDialog by remember { mutableStateOf(false) }
     var showReturnDialog by remember { mutableStateOf(false) }
-    var modifyingItem by remember { mutableStateOf<DeliveryItemDto?>(null) }
+    var modifyingItem by remember { mutableStateOf<DeliveryProductDto?>(null) }
     var newQtyInput by remember { mutableStateOf("") }
-    var eventObs by remember { mutableStateOf("") }
-    var selectedProductIdForEvent by remember { mutableStateOf("") }
     var eventQty by remember { mutableStateOf("") }
+    var selectedProductId by remember { mutableStateOf("") }
 
     val savePdf = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
         uri?.let { viewModel.downloadAndOpenPdf(context, it) }
@@ -46,8 +46,8 @@ fun PresaleDetailScreen(
         AlertDialog(
             onDismissRequest = { confirmWhatsApp = false },
             title = { Text("Enviar recibo por WhatsApp") },
-            text = { Text("Se enviará al número principal y a todos los contactos activos que autorizaron recibir documentos.") },
-            confirmButton = { TextButton(onClick = { confirmWhatsApp = false; viewModel.sendWhatsapp(false) }) { Text("Enviar a todos") } },
+            text = { Text("Se enviará al número principal y contactos autorizados.") },
+            confirmButton = { TextButton(onClick = { confirmWhatsApp = false; viewModel.sendWhatsapp(false) }) { Text("Enviar") } },
             dismissButton = { TextButton(onClick = { confirmWhatsApp = false }) { Text("Cancelar") } }
         )
     }
@@ -55,20 +55,31 @@ fun PresaleDetailScreen(
     if (showDeliveryDialog) {
         AlertDialog(
             onDismissRequest = { showDeliveryDialog = false },
-            title = { Text("Registrar Entrega Parcial") },
+            title = { Text("Registrar Entrega") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    val items = delivery?.items ?: emptyList()
+                    val products = delivery?.products ?: emptyList()
+                    var productExpanded by remember { mutableStateOf(false) }
+                    val selectedProd = products.find { it.productId == selectedProductId } ?: products.firstOrNull()
+
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedButton(onClick = { productExpanded = true }, modifier = Modifier.fillMaxWidth()) {
+                            Text(selectedProd?.name ?: "Seleccione producto")
+                        }
+                        DropdownMenu(expanded = productExpanded, onDismissRequest = { productExpanded = false }) {
+                            products.forEach { p ->
+                                DropdownMenuItem(
+                                    text = { Text("${p.name} (Pendiente: ${p.pending ?: 0})") },
+                                    onClick = { selectedProductId = p.productId ?: ""; productExpanded = false }
+                                )
+                            }
+                        }
+                    }
+
                     OutlinedTextField(
                         value = eventQty,
                         onValueChange = { eventQty = it },
                         label = { Text("Cantidad a entregar") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = eventObs,
-                        onValueChange = { eventObs = it },
-                        label = { Text("Observaciones") },
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
@@ -76,11 +87,12 @@ fun PresaleDetailScreen(
             confirmButton = {
                 Button(onClick = {
                     val qty = eventQty.toIntOrNull() ?: 0
-                    viewModel.postDeliveryEvent("DELIVERY", qty, selectedProductIdForEvent.ifBlank { delivery?.items?.firstOrNull()?.productId }, eventObs)
+                    val prodId = selectedProductId.ifBlank { delivery?.products?.firstOrNull()?.productId ?: "" }
+                    val rev = delivery?.revision ?: 0
+                    viewModel.recordDeliveryEvent(prodId, "DELIVER", qty, rev)
                     showDeliveryDialog = false
                     eventQty = ""
-                    eventObs = ""
-                }) { Text("Registrar") }
+                }) { Text("Registrar Entrega") }
             },
             dismissButton = { TextButton(onClick = { showDeliveryDialog = false }) { Text("Cancelar") } }
         )
@@ -92,16 +104,28 @@ fun PresaleDetailScreen(
             title = { Text("Registrar Devolución") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val products = delivery?.products ?: emptyList()
+                    var productExpanded by remember { mutableStateOf(false) }
+                    val selectedProd = products.find { it.productId == selectedProductId } ?: products.firstOrNull()
+
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedButton(onClick = { productExpanded = true }, modifier = Modifier.fillMaxWidth()) {
+                            Text(selectedProd?.name ?: "Seleccione producto")
+                        }
+                        DropdownMenu(expanded = productExpanded, onDismissRequest = { productExpanded = false }) {
+                            products.forEach { p ->
+                                DropdownMenuItem(
+                                    text = { Text("${p.name} (Entregado: ${p.delivered ?: 0})") },
+                                    onClick = { selectedProductId = p.productId ?: ""; productExpanded = false }
+                                )
+                            }
+                        }
+                    }
+
                     OutlinedTextField(
                         value = eventQty,
                         onValueChange = { eventQty = it },
                         label = { Text("Cantidad devuelta") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = eventObs,
-                        onValueChange = { eventObs = it },
-                        label = { Text("Motivo / Observaciones") },
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
@@ -109,10 +133,11 @@ fun PresaleDetailScreen(
             confirmButton = {
                 Button(onClick = {
                     val qty = eventQty.toIntOrNull() ?: 0
-                    viewModel.postDeliveryEvent("RETURN", qty, delivery?.items?.firstOrNull()?.productId, eventObs)
+                    val prodId = selectedProductId.ifBlank { delivery?.products?.firstOrNull()?.productId ?: "" }
+                    val rev = delivery?.revision ?: 0
+                    viewModel.recordDeliveryEvent(prodId, "RETURN", qty, rev)
                     showReturnDialog = false
                     eventQty = ""
-                    eventObs = ""
                 }) { Text("Registrar Devolución") }
             },
             dismissButton = { TextButton(onClick = { showReturnDialog = false }) { Text("Cancelar") } }
@@ -122,22 +147,23 @@ fun PresaleDetailScreen(
     modifyingItem?.let { item ->
         AlertDialog(
             onDismissRequest = { modifyingItem = null; newQtyInput = "" },
-            title = { Text("Modificar cantidad entregada: ${item.productName ?: item.productId}") },
+            title = { Text("Modificar cantidad solicitada: ${item.name ?: item.productId}") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Solicitado: ${item.quantityOrdered}, Actual entregado: ${item.quantityDelivered}")
+                    Text("Solicitado actual: ${item.ordered}, Entregado: ${item.delivered}")
                     OutlinedTextField(
                         value = newQtyInput,
                         onValueChange = { newQtyInput = it },
-                        label = { Text("Nueva cantidad entregada") },
+                        label = { Text("Nueva cantidad solicitada") },
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
             },
             confirmButton = {
                 Button(onClick = {
-                    val q = newQtyInput.toIntOrNull() ?: item.quantityDelivered
-                    viewModel.updateDeliveryQuantity(item.productId ?: "", q, item.itemRevision)
+                    val q = newQtyInput.toIntOrNull() ?: item.ordered ?: 0
+                    val rev = delivery?.revision ?: 0
+                    viewModel.updateDeliveryQuantity(item.productId ?: "", q, rev)
                     modifyingItem = null
                     newQtyInput = ""
                 }) { Text("Actualizar") }
@@ -182,23 +208,18 @@ fun PresaleDetailScreen(
         } else {
             val s = sale!!
             val d = delivery
-            val deliveryItems = d?.items ?: s.details?.map {
-                DeliveryItemDto(
+            val products = d?.products ?: s.details?.map {
+                DeliveryProductDto(
+                    saleDetailId = it.id,
                     productId = it.productId,
-                    productName = it.productName,
+                    name = it.productName,
                     ordered = it.quantity,
-                    solicitado = null,
                     delivered = 0,
-                    entregado = null,
-                    pending = it.quantity,
-                    pendiente = null,
-                    revision = 0,
-                    status = "PENDING",
-                    attribution = null
+                    pending = it.quantity
                 )
             } ?: emptyList()
 
-            val allFullyDelivered = deliveryItems.isNotEmpty() && deliveryItems.all { it.quantityPending <= 0 }
+            val isComplete = d?.complete == true || (products.isNotEmpty() && products.all { (it.pending ?: 0) <= 0 })
 
             Column(
                 modifier = Modifier
@@ -208,7 +229,7 @@ fun PresaleDetailScreen(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // Header with presale number and status badge
+                // Header Card
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
@@ -241,9 +262,6 @@ fun PresaleDetailScreen(
                             Text("Tipo: ${s.saleType}", style = MaterialTheme.typography.bodyMedium)
                             Text("Pago: ${s.paymentStatus}", style = MaterialTheme.typography.bodyMedium)
                         }
-                        if (!s.dueDate.isNullOrBlank()) {
-                            Text("Vencimiento: ${s.dueDate}", style = MaterialTheme.typography.bodySmall)
-                        }
                     }
                 }
 
@@ -257,43 +275,8 @@ fun PresaleDetailScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column {
-                            Text("Total Preventa", style = MaterialTheme.typography.bodyMedium)
-                            if (s.discount > 0) {
-                                Text("Subtotal: Bs. ${"%.2f".format(s.subtotal)} | Desc: Bs. ${"%.2f".format(s.discount)}", style = MaterialTheme.typography.bodySmall)
-                            }
-                        }
+                        Text("Total Preventa", style = MaterialTheme.typography.bodyMedium)
                         Text("Bs. ${"%.2f".format(s.total)}", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
-                    }
-                }
-
-                // Delivery Summary Cards (No entregado, Parcial, Completo)
-                val summary = d?.summary
-                val noEntregadoCount = summary?.noEntregadoCount ?: deliveryItems.count { it.quantityDelivered == 0 }
-                val parcialCount = summary?.parcialCountVal ?: deliveryItems.count { it.quantityDelivered > 0 && it.quantityPending > 0 }
-                val completoCount = summary?.completoCountVal ?: deliveryItems.count { it.quantityDelivered > 0 && it.quantityPending <= 0 }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Card(modifier = Modifier.weight(1f)) {
-                        Column(modifier = Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("No Entregado", style = MaterialTheme.typography.labelSmall)
-                            Text("$noEntregadoCount", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.error)
-                        }
-                    }
-                    Card(modifier = Modifier.weight(1f)) {
-                        Column(modifier = Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("Parcial", style = MaterialTheme.typography.labelSmall)
-                            Text("$parcialCount", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.tertiary)
-                        }
-                    }
-                    Card(modifier = Modifier.weight(1f)) {
-                        Column(modifier = Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("Completo", style = MaterialTheme.typography.labelSmall)
-                            Text("$completoCount", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                        }
                     }
                 }
 
@@ -308,7 +291,7 @@ fun PresaleDetailScreen(
                     }
                 }
 
-                // Products List
+                // Products & Deliveries
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Row(
@@ -316,28 +299,31 @@ fun PresaleDetailScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("Productos y Entregas Parciales", style = MaterialTheme.typography.titleMedium)
-                            if (d != null) {
-                                TextButton(onClick = { showDeliveryDialog = true }) {
-                                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Registrar Entrega")
+                            Text("Productos y Entregas", style = MaterialTheme.typography.titleMedium)
+                            if (d != null && s.status != "CONFIRMED") {
+                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    TextButton(onClick = { showDeliveryDialog = true }) {
+                                        Text("Entrega")
+                                    }
+                                    TextButton(onClick = { showReturnDialog = true }) {
+                                        Text("Devolución")
+                                    }
                                 }
                             }
                         }
                         HorizontalDivider()
 
-                        deliveryItems.forEach { item ->
-                            val ordered = item.quantityOrdered
-                            val delivered = item.quantityDelivered
-                            val pending = item.quantityPending
-                            val progress = if (ordered > 0) (delivered.toFloat() / ordered.toFloat()).coerceIn(0f, 1f) else 0f
-                            val itemStatus = when {
-                                delivered == 0 -> "No entregado"
-                                pending > 0 -> "Parcial"
+                        products.forEach { prod ->
+                            val ord = prod.ordered ?: 0
+                            val del = prod.delivered ?: 0
+                            val pen = prod.pending ?: maxOf(0, ord - del)
+                            val progress = if (ord > 0) (del.toFloat() / ord.toFloat()).coerceIn(0f, 1f) else 0f
+                            val status = when {
+                                del == 0 -> "No entregado"
+                                pen > 0 -> "Parcial"
                                 else -> "Completo"
                             }
-                            val statusColor = when (itemStatus) {
+                            val statusColor = when (status) {
                                 "Completo" -> MaterialTheme.colorScheme.primary
                                 "Parcial" -> MaterialTheme.colorScheme.tertiary
                                 else -> MaterialTheme.colorScheme.error
@@ -349,13 +335,13 @@ fun PresaleDetailScreen(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text(item.productName ?: item.productId ?: "", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                                    Text(prod.name ?: prod.productId ?: "", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
                                     Surface(
                                         color = statusColor.copy(alpha = 0.2f),
                                         shape = MaterialTheme.shapes.small
                                     ) {
                                         Text(
-                                            text = itemStatus,
+                                            text = status,
                                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                             style = MaterialTheme.typography.labelSmall,
                                             color = statusColor
@@ -363,23 +349,16 @@ fun PresaleDetailScreen(
                                     }
                                 }
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text("Solicitado: $ordered | Entregado: $delivered | Pendiente: $pending", style = MaterialTheme.typography.bodySmall)
-                                    if (!item.attribution.isNullOrBlank()) {
-                                        Text("Por: ${item.attribution}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
-                                    }
+                                    Text("Solicitado: $ord | Entregado: $del | Pendiente: $pen", style = MaterialTheme.typography.bodySmall)
                                 }
                                 LinearProgressIndicator(
                                     progress = progress,
                                     modifier = Modifier.fillMaxWidth().height(6.dp)
                                 )
                                 if (d != null && s.status != "CONFIRMED" && s.status != "CANCELLED") {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.End,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        TextButton(onClick = { modifyingItem = item }) {
-                                            Text("Modificar cantidad")
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                                        TextButton(onClick = { modifyingItem = prod }) {
+                                            Text("Modificar pedido")
                                         }
                                     }
                                 }
@@ -389,13 +368,13 @@ fun PresaleDetailScreen(
                     }
                 }
 
-                // Delivery History Timeline ("Historial de entregas")
+                // Delivery History Events
                 if (!d?.events.isNullOrEmpty()) {
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("Historial de Entregas y Eventos", style = MaterialTheme.typography.titleMedium)
+                            Text("Historial de Entregas", style = MaterialTheme.typography.titleMedium)
                             HorizontalDivider()
-                            d!!.events!!.forEach { event ->
+                            d!!.events!!.forEach { ev ->
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -403,16 +382,8 @@ fun PresaleDetailScreen(
                                 ) {
                                     Icon(Icons.Default.Info, contentDescription = null, modifier = Modifier.size(16.dp).padding(top = 2.dp))
                                     Column(modifier = Modifier.weight(1f)) {
-                                        Text("${event.type ?: "EVENTO"} - ${event.timestamp ?: ""}", style = MaterialTheme.typography.labelMedium)
-                                        if (!event.description.isNullOrBlank()) {
-                                            Text(event.description!!, style = MaterialTheme.typography.bodySmall)
-                                        }
-                                        if (!event.details.isNullOrBlank()) {
-                                            Text(event.details!!, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-                                        }
-                                        if (!event.attribution.isNullOrBlank()) {
-                                            Text("Responsable: ${event.attribution}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
-                                        }
+                                        Text("${ev.kind ?: "EVENTO"} - Cantidad: ${ev.quantity ?: 0}", style = MaterialTheme.typography.labelMedium)
+                                        Text("Usuario ID: ${ev.userId ?: "N/D"} | ${ev.createdAt ?: ""}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
                                     }
                                 }
                                 HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
@@ -421,22 +392,20 @@ fun PresaleDetailScreen(
                     }
                 }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    if (d != null && s.status != "CONFIRMED" && s.status != "CANCELLED") {
-                        OutlinedButton(
-                            onClick = { showReturnDialog = true },
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Devolución")
-                        }
+                // Edit order button (if PENDING)
+                if (s.status == "PENDING") {
+                    Button(
+                        onClick = onEdit,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                    ) {
+                        Icon(Icons.Default.Edit, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Editar pedido")
                     }
                 }
 
+                // Action buttons (WhatsApp, Ver PDF)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -461,20 +430,16 @@ fun PresaleDetailScreen(
                     }
                 }
 
-                // Confirm sale button (enabled only when all items are fully delivered)
-                if (s.status == "PENDING" || s.status == "IN_PROGRESS" || s.status == "PARTIAL") {
+                // Confirm sale button
+                if (s.status != "CONFIRMED" && s.status != "CANCELLED") {
                     Button(
                         onClick = { viewModel.confirmSale() },
-                        enabled = !isLoading && allFullyDelivered,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (allFullyDelivered) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                            contentColor = if (allFullyDelivered) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        enabled = !isLoading && isComplete,
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         Icon(Icons.Default.CheckCircle, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(if (allFullyDelivered) "Confirmar Venta" else "Entregue todos los ítems para confirmar venta")
+                        Text(if (isComplete) "Confirmar Venta" else "Pedido incompleto (Faltan entregas)")
                     }
                 }
 

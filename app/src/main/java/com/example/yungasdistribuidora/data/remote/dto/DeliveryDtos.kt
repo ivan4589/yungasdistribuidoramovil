@@ -2,63 +2,44 @@ package com.example.yungasdistribuidora.data.remote.dto
 
 import com.google.gson.annotations.SerializedName
 
-data class DeliveryItemDto(
-    @SerializedName("productId") val productId: String?,
-    @SerializedName("productName") val productName: String?,
-    @SerializedName("ordered") val ordered: Int?,
-    @SerializedName("solicitado") val solicitado: Int?,
-    @SerializedName("delivered") val delivered: Int?,
-    @SerializedName("entregado") val entregado: Int?,
-    @SerializedName("pending") val pending: Int?,
-    @SerializedName("pendiente") val pendiente: Int?,
+data class DeliveryResponseDto(
+    @SerializedName("saleId") val saleId: String?,
+    @SerializedName("saleNumber") val saleNumber: String?,
+    @SerializedName("saleStatus") val saleStatus: String?,
+    @SerializedName("deliveryMode") val deliveryMode: String?,
     @SerializedName("revision") val revision: Int?,
-    @SerializedName("status") val status: String?,
-    @SerializedName("attribution") val attribution: String?
+    @SerializedName("complete") val complete: Boolean?,
+    @SerializedName("products") val products: List<DeliveryProductDto>?,
+    @SerializedName("events") val events: List<DeliveryEventDto>?
+)
+
+data class DeliveryProductDto(
+    @SerializedName("saleDetailId") val saleDetailId: String?,
+    @SerializedName("productId") val productId: String?,
+    @SerializedName("name") val name: String?,
+    @SerializedName("ordered") val ordered: Int?,
+    @SerializedName("delivered") val delivered: Int?,
+    @SerializedName("pending") val pending: Int?
 ) {
-    val quantityOrdered: Int get() = ordered ?: solicitado ?: 0
-    val quantityDelivered: Int get() = delivered ?: entregado ?: 0
-    val quantityPending: Int get() = pending ?: pendiente ?: maxOf(0, quantityOrdered - quantityDelivered)
-    val itemRevision: Int get() = revision ?: 0
+    val quantityOrdered: Int get() = ordered ?: 0
+    val quantityDelivered: Int get() = delivered ?: 0
+    val quantityPending: Int get() = pending ?: maxOf(0, quantityOrdered - quantityDelivered)
 }
 
 data class DeliveryEventDto(
     @SerializedName("id") val id: String?,
-    @SerializedName("type") val type: String?,
-    @SerializedName("timestamp") val timestamp: String?,
-    @SerializedName("user") val user: String?,
-    @SerializedName("description") val description: String?,
-    @SerializedName("details") val details: String?,
-    @SerializedName("attribution") val attribution: String?
-)
-
-data class DeliverySummaryDto(
-    @SerializedName("notDeliveredCount") val notDeliveredCount: Int?,
-    @SerializedName("noEntregado") val noEntregado: Int?,
-    @SerializedName("partialCount") val partialCount: Int?,
-    @SerializedName("parcial") val parcial: Int?,
-    @SerializedName("completedCount") val completedCount: Int?,
-    @SerializedName("completo") val completo: Int?
-) {
-    val noEntregadoCount: Int get() = notDeliveredCount ?: noEntregado ?: 0
-    val parcialCountVal: Int get() = partialCount ?: parcial ?: 0
-    val completoCountVal: Int get() = completedCount ?: completo ?: 0
-}
-
-data class DeliveryResponseDto(
-    @SerializedName("saleId") val saleId: String?,
-    @SerializedName("status") val status: String?,
-    @SerializedName("items") val items: List<DeliveryItemDto>?,
-    @SerializedName("events") val events: List<DeliveryEventDto>?,
-    @SerializedName("summary") val summary: DeliverySummaryDto?,
-    @SerializedName("revision") val revision: Int?,
-    @SerializedName("attribution") val attribution: String?
+    @SerializedName("productId") val productId: String?,
+    @SerializedName("userId") val userId: String?,
+    @SerializedName("kind") val kind: String?, // "DELIVER" or "RETURN"
+    @SerializedName("quantity") val quantity: Int?,
+    @SerializedName("createdAt") val createdAt: String?
 )
 
 data class DeliveryEventRequestDto(
-    @SerializedName("type") val type: String?,
-    @SerializedName("quantity") val quantity: Int?,
-    @SerializedName("productId") val productId: String?,
-    @SerializedName("observations") val observations: String?
+    @SerializedName("productId") val productId: String,
+    @SerializedName("kind") val kind: String, // "DELIVER" or "RETURN"
+    @SerializedName("quantity") val quantity: Int,
+    @SerializedName("expectedRevision") val expectedRevision: Int
 )
 
 data class UpdateDeliveryQuantityRequestDto(
@@ -68,14 +49,15 @@ data class UpdateDeliveryQuantityRequestDto(
 )
 
 data class RealtimeAccessDto(
-    @SerializedName("token") val token: String?,
     @SerializedName("accessToken") val accessToken: String?,
+    @SerializedName("expiresInSeconds") val expiresInSeconds: Long?,
+    @SerializedName("channels") val channels: List<String>?,
+    @SerializedName("private") val private: Boolean?,
     @SerializedName("url") val url: String?,
     @SerializedName("websocketUrl") val websocketUrl: String?,
     @SerializedName("apiKey") val apiKey: String?,
     @SerializedName("key") val key: String?
 ) {
-    val resolvedToken: String? get() = token ?: accessToken
-    val resolvedUrl: String? get() = url ?: websocketUrl
-    val resolvedApiKey: String? get() = apiKey ?: key
+    val resolvedToken: String? get() = accessToken ?: apiKey ?: key
+    val resolvedUrl: String? get() = url ?: websocketUrl ?: "wss://api.yungasdistribuidora.cc/realtime/v1/websocket"
 }

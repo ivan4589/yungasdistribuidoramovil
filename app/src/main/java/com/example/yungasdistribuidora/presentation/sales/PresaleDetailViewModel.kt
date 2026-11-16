@@ -57,10 +57,10 @@ class PresaleDetailViewModel(
 
     fun loadDelivery() {
         viewModelScope.launch {
-            salesRepository.getDelivery(saleId).onSuccess {
+            salesRepository.getDeliveryDetails(saleId).onSuccess {
                 _delivery.value = it
             }.onFailure {
-                // If delivery not started yet or 404, that's fine
+                // Ignore if not started yet
             }
         }
     }
@@ -69,9 +69,10 @@ class PresaleDetailViewModel(
         if (_isLoading.value) return
         viewModelScope.launch {
             _isLoading.value = true
-            salesRepository.startDelivery(saleId).onSuccess {
+            salesRepository.startDelivery(idempotencyKey, saleId).onSuccess {
                 _delivery.value = it
                 _successMessage.value = "Entrega iniciada"
+                idempotencyKey = UUID.randomUUID().toString()
             }.onFailure {
                 _errorMessage.value = it.message ?: "Error al iniciar entrega"
             }
@@ -79,18 +80,22 @@ class PresaleDetailViewModel(
         }
     }
 
-    fun postDeliveryEvent(type: String, quantity: Int?, productId: String?, observations: String?) {
+    fun recordDeliveryEvent(productId: String, kind: String, quantity: Int, expectedRevision: Int) {
         if (_isLoading.value) return
         viewModelScope.launch {
             _isLoading.value = true
-            val req = DeliveryEventRequestDto(type, quantity, productId, observations)
-            salesRepository.postDeliveryEvent(idempotencyKey, saleId, req).onSuccess {
+            val req = DeliveryEventRequestDto(productId = productId, kind = kind, quantity = quantity, expectedRevision = expectedRevision)
+            salesRepository.recordDeliveryEvent(idempotencyKey, saleId, req).onSuccess {
                 _delivery.value = it
-                _successMessage.value = "Evento de entrega registrado"
+                _successMessage.value = if (kind == "DELIVER") "Entrega registrada" else "Devolución registrada"
                 idempotencyKey = UUID.randomUUID().toString()
                 loadSale()
-            }.onFailure {
-                _errorMessage.value = it.message ?: "Error al registrar evento de entrega"
+                loadDelivery()
+            }.onFailure { err ->
+                _errorMessage.value = err.message ?: "Error al registrar evento"
+                if (err.message?.contains("409") == true) {
+                    loadDelivery()
+                }
             }
             _isLoading.value = false
         }
@@ -100,12 +105,18 @@ class PresaleDetailViewModel(
         if (_isLoading.value) return
         viewModelScope.launch {
             _isLoading.value = true
-            val req = UpdateDeliveryQuantityRequestDto(productId, quantity, expectedRevision)
-            salesRepository.updateDeliveryQuantity(saleId, req).onSuccess {
+            val req = UpdateDeliveryQuantityRequestDto(productId = productId, quantity = quantity, expectedRevision = expectedRevision)
+            salesRepository.updateDeliveryQuantity(idempotencyKey, saleId, req).onSuccess {
                 _delivery.value = it
                 _successMessage.value = "Cantidad actualizada"
-            }.onFailure {
-                _errorMessage.value = it.message ?: "Error al actualizar cantidad (revisión desactualizada)"
+                idempotencyKey = UUID.randomUUID().toString()
+                loadSale()
+                loadDelivery()
+            }.onFailure { err ->
+                _errorMessage.value = err.message ?: "Error al actualizar cantidad"
+                if (err.message?.contains("409") == true) {
+                    loadDelivery()
+                }
             }
             _isLoading.value = false
         }
@@ -134,7 +145,7 @@ class PresaleDetailViewModel(
         }
         viewModelScope.launch {
             _isLoading.value = true
-            salesRepository.cancelSale(idempotencyKey, saleId).onSuccess {
+            salesRepository.cancelSale(idempotencyKey, saleId, "Cancelado por el administrador").onSuccess {
                 _sale.value = it
                 _successMessage.value = "Preventa cancelada"
                 idempotencyKey = UUID.randomUUID().toString()
@@ -149,8 +160,8 @@ class PresaleDetailViewModel(
         if (_isLoading.value || _sale.value?.status != "CONFIRMED") return
         viewModelScope.launch {
             _isLoading.value = true
-            salesRepository.sendWhatsapp(saleId, resend).onSuccess { summary ->
-                _successMessage.value = summary.message()
+            salesRepository.sendWhatsapp(saleId, resend).onSuccess {
+                _successMessage.value = "Mensaje de WhatsApp enviado"
             }.onFailure {
                 _errorMessage.value = it.message ?: "Error al enviar WhatsApp"
             }
@@ -162,7 +173,8 @@ class PresaleDetailViewModel(
         if (_isLoading.value || _sale.value?.status != "CONFIRMED") return
         viewModelScope.launch {
             _isLoading.value = true
-            salesRepository.downloadPdf(saleId).onSuccess { body ->
+            val isCancelled = _sale.value?.status == "CANCELLED"
+            salesRepository.downloadPdf(saleId, isCancelled).onSuccess { body ->
                 try {
                     withContext(Dispatchers.IO) {
                         body.use {

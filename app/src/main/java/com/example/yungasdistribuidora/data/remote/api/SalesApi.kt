@@ -1,8 +1,7 @@
 package com.example.yungasdistribuidora.data.remote.api
 
-import com.example.yungasdistribuidora.data.remote.dto.CreateSaleRequestDto
-import com.example.yungasdistribuidora.data.remote.dto.SaleResponseDto
 import com.example.yungasdistribuidora.data.remote.dto.*
+import com.example.yungasdistribuidora.data.remote.dto.CancelSaleRequestDto
 import okhttp3.ResponseBody
 import retrofit2.Response
 import retrofit2.http.*
@@ -18,11 +17,9 @@ interface SalesApi {
     suspend fun getSales(
         @Query("status") status: String?,
         @Query("paymentStatus") paymentStatus: String?,
-        @Query("startDate") startDate: String?,
-        @Query("endDate") endDate: String?,
-        @Query("clientId") clientId: String?,
-        @Query("sellerId") sellerId: String?,
-        @Query("search") search: String?
+        @Query("dateFrom") dateFrom: String?,
+        @Query("dateTo") dateTo: String?,
+        @Query("clientId") clientId: String?
     ): Response<List<SaleResponseDto>>
 
     @GET("sales/{id}")
@@ -32,7 +29,7 @@ interface SalesApi {
     suspend fun updateSale(
         @Header("Idempotency-Key") idempotencyKey: String,
         @Path("id") id: String,
-        @Body request: UpdateSaleRequestDto
+        @Body request: CreateSaleRequestDto
     ): Response<SaleResponseDto>
 
     @PATCH("sales/{id}/confirm")
@@ -44,34 +41,36 @@ interface SalesApi {
     @PATCH("sales/{id}/cancel")
     suspend fun cancelSale(
         @Header("Idempotency-Key") idempotencyKey: String,
-        @Path("id") id: String
+        @Path("id") id: String,
+        @Body request: CancelSaleRequestDto
     ): Response<SaleResponseDto>
 
-    @GET("clients/{id}")
-    suspend fun getWhatsAppClient(@Path("id") id: String): Response<WhatsAppClientDto>
-
-    @GET("clients/{id}/contacts")
-    suspend fun getWhatsAppContacts(@Path("id") id: String): Response<List<WhatsAppContactDto>>
-
-    @POST("sales/{id}/whatsapp/recipients")
+    @POST("sales/{id}/whatsapp")
     suspend fun sendWhatsapp(
         @Path("id") id: String,
-        @Body body: WhatsAppBatchRequest
-    ): Response<WhatsAppBatchResponse>
+        @Body body: Map<String, Boolean>
+    ): Response<Unit>
 
+    @Streaming
     @GET("documents/sales/{id}")
     suspend fun downloadPdf(
-        @Path("id") id: String
+        @Path("id") id: String,
+        @Query("cancelled") cancelled: Boolean? = null
     ): Response<ResponseBody>
 
     @POST("sales/{id}/delivery/start")
-    suspend fun startDelivery(@Path("id") id: String): Response<DeliveryResponseDto>
+    suspend fun startDelivery(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Path("id") id: String
+    ): Response<DeliveryResponseDto>
 
     @GET("sales/{id}/delivery")
-    suspend fun getDelivery(@Path("id") id: String): Response<DeliveryResponseDto>
+    suspend fun getDeliveryDetails(
+        @Path("id") id: String
+    ): Response<DeliveryResponseDto>
 
     @POST("sales/{id}/delivery/events")
-    suspend fun postDeliveryEvent(
+    suspend fun recordDeliveryEvent(
         @Header("Idempotency-Key") idempotencyKey: String,
         @Path("id") id: String,
         @Body request: DeliveryEventRequestDto
@@ -79,6 +78,7 @@ interface SalesApi {
 
     @PATCH("sales/{id}/delivery/quantity")
     suspend fun updateDeliveryQuantity(
+        @Header("Idempotency-Key") idempotencyKey: String,
         @Path("id") id: String,
         @Body request: UpdateDeliveryQuantityRequestDto
     ): Response<DeliveryResponseDto>

@@ -29,7 +29,7 @@ class SupabaseRealtimeManager(
                     if (response.isSuccessful && response.body() != null) {
                         val access = response.body()!!
                         val wsUrl = access.resolvedUrl ?: "wss://api.yungasdistribuidora.cc/realtime/v1/websocket"
-                        val token = access.resolvedToken ?: access.resolvedApiKey ?: ""
+                        val token = access.resolvedToken ?: ""
 
                         connectWebSocket(wsUrl, token)
                         break

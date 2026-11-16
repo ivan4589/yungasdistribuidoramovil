@@ -51,6 +51,12 @@ interface SalesApi {
         @Body body: Map<String, Boolean>
     ): Response<Unit>
 
+    @POST("sales/{id}/whatsapp/recipients")
+    suspend fun sendWhatsappBatch(
+        @Path("id") id: String,
+        @Body request: WhatsAppBatchRequest
+    ): Response<WhatsAppBatchResponse>
+
     @Streaming
     @GET("documents/sales/{id}")
     suspend fun downloadPdf(

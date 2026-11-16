@@ -144,7 +144,7 @@ class YungasApplication : Application() {
         bonusRuleRepository = BonusRuleRepositoryImpl(bonusRulesApi, database.bonusRuleDao())
 
         salesApi = retrofit.create(SalesApi::class.java)
-        salesRepository = SalesRepositoryImpl(salesApi, database.saleDao())
+        salesRepository = SalesRepositoryImpl(salesApi, clientApi, database.saleDao())
         presaleRepository = salesRepository
 
         realtimeManager = SupabaseRealtimeManager(salesApi) {
@@ -152,7 +152,6 @@ class YungasApplication : Application() {
                 salesRepository.refreshSales()
             }
         }
-        realtimeManager.start()
 
         appLockManager = AppLockManager(authRepository, offlineSessionManager)
         biometricAuthManager = BiometricAuthManagerImpl(this)

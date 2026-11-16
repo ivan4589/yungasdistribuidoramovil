@@ -11,6 +11,12 @@ class SupabaseRealtimeManager(
     private val salesApi: SalesApi,
     private val onRefreshTriggered: () -> Unit
 ) {
+    companion object {
+        private const val TAG = "SupabaseRealtime"
+        private const val SUPABASE_WS_URL = "wss://yungasdistribuidora.supabase.co/realtime/v1/websocket"
+        private const val SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+    }
+
     private val client = OkHttpClient.Builder()
         .pingInterval(30, TimeUnit.SECONDS)
         .build()
@@ -18,6 +24,8 @@ class SupabaseRealtimeManager(
     private var webSocket: WebSocket? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var isRunning = false
+    private var heartbeatJob: Job? = null
+    private var tokenRefreshJob: Job? = null
 
     fun start() {
         if (isRunning) return
@@ -28,14 +36,22 @@ class SupabaseRealtimeManager(
                     val response = salesApi.getRealtimeAccess()
                     if (response.isSuccessful && response.body() != null) {
                         val access = response.body()!!
-                        val wsUrl = access.resolvedUrl ?: "wss://api.yungasdistribuidora.cc/realtime/v1/websocket"
                         val token = access.resolvedToken ?: ""
+                        val rUrl = access.resolvedUrl
+                        val wsUrl = if (!rUrl.isNullOrBlank() && !rUrl.contains("api.yungasdistribuidora.cc")) {
+                            rUrl
+                        } else {
+                            "$SUPABASE_WS_URL?apikey=$SUPABASE_ANON_KEY&vsn=1.0.0"
+                        }
 
                         connectWebSocket(wsUrl, token)
+                        
+                        val expiresIn = access.expiresInSeconds ?: 300L
+                        scheduleTokenRefresh((expiresIn - 60).coerceAtLeast(60L) * 1000L)
                         break
                     }
                 } catch (e: Exception) {
-                    Log.e("SupabaseRealtime", "Failed to get realtime access", e)
+                    Log.e(TAG, "Failed to get realtime access", e)
                 }
                 delay(10_000)
             }
@@ -43,10 +59,15 @@ class SupabaseRealtimeManager(
     }
 
     private fun connectWebSocket(url: String, token: String) {
+        webSocket?.close(1000, "Reconnecting")
+        webSocket = null
+
         val request = Request.Builder().url(url).build()
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                Log.d("SupabaseRealtime", "WebSocket opened")
+                Log.d(TAG, "WebSocket opened")
+                startHeartbeat(webSocket)
+
                 val subDelivery = JSONObject().apply {
                     put("topic", "realtime:yungas:delivery")
                     put("event", "phx_join")
@@ -64,12 +85,12 @@ class SupabaseRealtimeManager(
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
-                Log.d("SupabaseRealtime", "Received message: $text")
+                Log.d(TAG, "Received message: $text")
                 try {
                     val json = JSONObject(text)
                     val topic = json.optString("topic")
                     val event = json.optString("event")
-                    if (topic.contains("yungas:delivery") || topic.contains("yungas:inventory") || event == "postgres_changes" || event == "broadcast") {
+                    if (topic.contains("yungas:delivery") || topic.contains("yungas:inventory") || event == "postgres_changes" || event == "broadcast" || event == "changed") {
                         onRefreshTriggered()
                     }
                 } catch (e: Exception) {
@@ -78,28 +99,94 @@ class SupabaseRealtimeManager(
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                Log.e("SupabaseRealtime", "WebSocket failure", t)
+                Log.e(TAG, "WebSocket failure", t)
+                stopHeartbeat()
                 reconnect()
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                Log.d("SupabaseRealtime", "WebSocket closed: $reason")
+                Log.d(TAG, "WebSocket closed: $reason")
+                stopHeartbeat()
                 reconnect()
             }
         })
+    }
+
+    private fun startHeartbeat(ws: WebSocket) {
+        stopHeartbeat()
+        heartbeatJob = scope.launch {
+            while (isRunning) {
+                delay(30_000)
+                try {
+                    val hb = JSONObject().apply {
+                        put("topic", "phoenix")
+                        put("event", "heartbeat")
+                        put("payload", JSONObject())
+                        put("ref", "hb_${System.currentTimeMillis()}")
+                    }
+                    ws.send(hb.toString())
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error sending heartbeat", e)
+                    break
+                }
+            }
+        }
+    }
+
+    private fun stopHeartbeat() {
+        heartbeatJob?.cancel()
+        heartbeatJob = null
+    }
+
+    private fun scheduleTokenRefresh(delayMillis: Long) {
+        tokenRefreshJob?.cancel()
+        tokenRefreshJob = scope.launch {
+            delay(delayMillis)
+            if (isRunning) {
+                Log.d(TAG, "Refreshing realtime token...")
+                try {
+                    val response = salesApi.getRealtimeAccess()
+                    if (response.isSuccessful && response.body() != null) {
+                        val access = response.body()!!
+                        val newToken = access.resolvedToken ?: ""
+                        if (newToken.isNotBlank()) {
+                            val ws = webSocket
+                            if (ws != null) {
+                                val refKey = "ref_${System.currentTimeMillis()}"
+                                val refreshMsg = JSONObject().apply {
+                                    put("topic", "realtime:yungas:delivery")
+                                    put("event", "access_token")
+                                    put("payload", JSONObject().put("access_token", newToken))
+                                    put("ref", refKey)
+                                }
+                                ws.send(refreshMsg.toString())
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to refresh token", e)
+                }
+            }
+        }
     }
 
     private fun reconnect() {
         if (!isRunning) return
         scope.launch {
             delay(5_000)
-            start()
+            if (isRunning) {
+                start()
+            }
         }
     }
 
     fun stop() {
         isRunning = false
+        stopHeartbeat()
+        tokenRefreshJob?.cancel()
+        tokenRefreshJob = null
         webSocket?.close(1000, "Client stopped")
         webSocket = null
+        Log.d(TAG, "SupabaseRealtimeManager stopped")
     }
 }

@@ -2,18 +2,20 @@ package com.example.yungasdistribuidora.data.repository
 
 import com.example.yungasdistribuidora.data.local.sale.SaleDao
 import com.example.yungasdistribuidora.data.mapper.SaleMapper
+import com.example.yungasdistribuidora.data.remote.api.ClientApi
 import com.example.yungasdistribuidora.data.remote.api.SalesApi
 import com.example.yungasdistribuidora.data.remote.dto.*
-import com.example.yungasdistribuidora.data.remote.dto.CancelSaleRequestDto
 import com.example.yungasdistribuidora.domain.repository.SalesRepository
 import com.example.yungasdistribuidora.util.ErrorMapper
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import okhttp3.ResponseBody
+import org.json.JSONObject
 import retrofit2.Response
 
 class SalesRepositoryImpl(
     private val salesApi: SalesApi,
+    private val clientApi: ClientApi,
     private val saleDao: SaleDao
 ) : SalesRepository {
 
@@ -167,13 +169,43 @@ class SalesRepositoryImpl(
         }
     }
 
-    override suspend fun sendWhatsapp(id: String, resend: Boolean): Result<Unit> {
+    override suspend fun sendWhatsapp(id: String, resend: Boolean): Result<WhatsAppDeliverySummary> {
         return try {
-            val response = salesApi.sendWhatsapp(id, mapOf("resend" to resend))
-            if (response.isSuccessful) {
-                Result.success(Unit)
+            val saleResponse = salesApi.getSaleById(id)
+            if (!saleResponse.isSuccessful || saleResponse.body() == null) {
+                return Result.failure(Exception(extractSafeBackendMessage(saleResponse)))
+            }
+            val sale = saleResponse.body()!!
+            if (sale.status != "CONFIRMED") {
+                return Result.failure(Exception("La venta debe estar confirmada para enviar el recibo por WhatsApp."))
+            }
+            val clientId = sale.clientId ?: return Result.failure(Exception("Preventa sin cliente asignado."))
+
+            val clientResponse = clientApi.getClientById(clientId)
+            if (!clientResponse.isSuccessful || clientResponse.body() == null) {
+                return Result.failure(Exception(extractSafeBackendMessage(clientResponse)))
+            }
+            val clientDto = clientResponse.body()!!
+            val whatsappClient = WhatsAppClientDto(clientDto.phone, clientDto.whatsappConsent)
+
+            val contactsResponse = clientApi.getClientContacts(clientId)
+            if (!contactsResponse.isSuccessful || contactsResponse.body() == null) {
+                return Result.failure(Exception(extractSafeBackendMessage(contactsResponse)))
+            }
+            val contacts = contactsResponse.body()!!.map { WhatsAppContactDto(it.id, it.name, it.phone, it.isActive, it.whatsappConsent) }
+
+            val recipients = eligibleWhatsAppRecipients(whatsappClient, contacts)
+            if (recipients.isEmpty()) {
+                return Result.failure(Exception("El cliente y sus contactos no tienen teléfonos con consentimiento de WhatsApp."))
+            }
+
+            val batchResponse = salesApi.sendWhatsappBatch(id, WhatsAppBatchRequest(recipients, resend))
+            if (batchResponse.isSuccessful && batchResponse.body() != null) {
+                val batchResult = batchResponse.body()!!
+                val results = batchResult.results ?: recipients.map { WhatsAppRecipientResult(it, "UNKNOWN", "Sin respuesta del servidor") }
+                Result.success(WhatsAppDeliverySummary(results))
             } else {
-                Result.failure(Exception(extractSafeBackendMessage(response)))
+                Result.failure(Exception(extractSafeBackendMessage(batchResponse)))
             }
         } catch (e: Exception) {
             Result.failure(Exception(ErrorMapper.mapException(e)))
@@ -291,7 +323,16 @@ class SalesRepositoryImpl(
         return try {
             val errorBody = response.errorBody()?.string()
             if (!errorBody.isNullOrBlank()) {
-                errorBody.take(150)
+                try {
+                    val json = JSONObject(errorBody)
+                    val msg = json.optString("message")
+                    if (msg.isNotBlank()) return msg
+                    val err = json.optString("error")
+                    if (err.isNotBlank()) return err
+                } catch (e: Exception) {
+                    // Not JSON
+                }
+                errorBody.take(200)
             } else {
                 ErrorMapper.mapHttpCode(response.code())
             }

@@ -280,12 +280,15 @@ fun PresaleDetailScreen(
                     }
                 }
 
-                if (d == null && s.status != "CANCELLED" && s.status != "CONFIRMED") {
+                val deliveryNotStarted = d == null || d?.deliveryMode.isNullOrBlank() || d?.revision == null
+
+                if (deliveryNotStarted && s.status != "CANCELLED" && s.status != "CONFIRMED") {
                     Button(
                         onClick = { viewModel.startDelivery() },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                     ) {
-                        Icon(Icons.Default.Info, contentDescription = null)
+                        Icon(Icons.Default.PlayArrow, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Iniciar Entrega / Control de Ruta")
                     }
@@ -300,7 +303,7 @@ fun PresaleDetailScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text("Productos y Entregas", style = MaterialTheme.typography.titleMedium)
-                            if (d != null && s.status != "CONFIRMED") {
+                            if (!deliveryNotStarted && s.status != "CONFIRMED") {
                                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                     TextButton(onClick = { showDeliveryDialog = true }) {
                                         Text("Entrega")

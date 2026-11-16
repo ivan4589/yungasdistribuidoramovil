@@ -126,13 +126,18 @@ class PresaleDetailViewModel(
         if (_isLoading.value) return
         viewModelScope.launch {
             _isLoading.value = true
-            salesRepository.confirmSale(idempotencyKey, saleId).onSuccess {
+            val apiCall = if (_delivery.value != null) {
+                salesRepository.confirmDelivery(idempotencyKey, saleId)
+            } else {
+                salesRepository.confirmSale(idempotencyKey, saleId)
+            }
+            apiCall.onSuccess {
                 _sale.value = it
                 _successMessage.value = "Venta confirmada exitosamente"
                 idempotencyKey = UUID.randomUUID().toString()
                 loadDelivery()
-            }.onFailure {
-                _errorMessage.value = it.message ?: "Error al confirmar la venta"
+            }.onFailure { err ->
+                _errorMessage.value = err.message ?: "Error al confirmar la venta"
             }
             _isLoading.value = false
         }

@@ -105,6 +105,7 @@ fun AppNavGraph() {
                             }
                         }
                         appLockManager.requireUnlockAfterSessionRestore()
+                        app.realtimeManager.start()
                         navController.navigate(route) {
                             popUpTo("splash") { inclusive = true }
                         }
@@ -116,6 +117,7 @@ fun AppNavGraph() {
                         currentUserRole = session.role
                         lastValidationTimeStr = dateFormat.format(Date(session.lastOnlineValidationAt))
                         appLockManager.requireUnlockAfterSessionRestore()
+                        app.realtimeManager.start()
                         val route = when (session.role) {
                             UserRole.ADMIN -> "admin_home"
                             UserRole.VENDEDOR -> "vendor_home"
@@ -161,6 +163,7 @@ fun AppNavGraph() {
                         tempUserRole = role
                         currentUserRole = UserRole.fromString(role)
                         appLockManager.onInteractiveAuthenticationCompleted()
+                        app.realtimeManager.start()
                         navController.navigate("recovery_codes") {
                             popUpTo("login") { inclusive = true }
                         }
@@ -186,6 +189,7 @@ fun AppNavGraph() {
                             }
                         }
                         appLockManager.onInteractiveAuthenticationCompleted()
+                        app.realtimeManager.start()
                         navController.navigate(route) {
                             popUpTo("recovery_codes") { inclusive = true }
                         }
@@ -210,6 +214,7 @@ fun AppNavGraph() {
                             }
                         }
                         appLockManager.onInteractiveAuthenticationCompleted()
+                        app.realtimeManager.start()
                         navController.navigate(route) {
                             popUpTo("login") { inclusive = true }
                         }
@@ -242,6 +247,7 @@ fun AppNavGraph() {
                             }
                         }
                         appLockManager.onInteractiveAuthenticationCompleted()
+                        app.realtimeManager.start()
                         navController.navigate(route) {
                             popUpTo("recovery_codes") { inclusive = true }
                         }
@@ -269,6 +275,7 @@ fun AppNavGraph() {
                         onLogout = {
                             runBlocking { authRepo.logout() }
                             appLockManager.clear()
+                            app.realtimeManager.stop()
                             isOfflineMode = false
                             navController.navigate("login") {
                                 popUpTo(0) { inclusive = true }
@@ -295,6 +302,7 @@ fun AppNavGraph() {
                         onLogout = {
                             runBlocking { authRepo.logout() }
                             appLockManager.clear()
+                            app.realtimeManager.stop()
                             isOfflineMode = false
                             navController.navigate("login") {
                                 popUpTo(0) { inclusive = true }
@@ -315,6 +323,7 @@ fun AppNavGraph() {
                     onLogout = {
                         runBlocking { authRepo.logout() }
                         appLockManager.clear()
+                        app.realtimeManager.stop()
                         isOfflineMode = false
                         navController.navigate("login") {
                             popUpTo(0) { inclusive = true }
@@ -330,6 +339,7 @@ fun AppNavGraph() {
                         onLogout = {
                             runBlocking { authRepo.logout() }
                             appLockManager.clear()
+                            app.realtimeManager.stop()
                             isOfflineMode = false
                             navController.navigate("login") {
                                 popUpTo(0) { inclusive = true }

@@ -27,9 +27,7 @@ class SalesRepositoryImpl(
                 val entity = SaleMapper.toEntity(dto)
                 val details = SaleMapper.toDetailEntities(dto.id, dto.details)
                 val bonuses = SaleMapper.toBonusEntities(dto.id, dto.bonuses)
-                saleDao.insertSale(entity)
-                saleDao.insertDetails(details)
-                saleDao.insertBonuses(bonuses)
+                saleDao.saveCompleteSale(entity, details, bonuses)
                 Result.success(dto)
             } else {
                 Result.failure(Exception(extractSafeBackendMessage(response)))
@@ -66,14 +64,24 @@ class SalesRepositoryImpl(
             val response = salesApi.getSales(status, paymentStatus, dateFrom, dateTo, clientId)
             if (response.isSuccessful && response.body() != null) {
                 val list = response.body()!!
+                val fetchedIds = list.map { it.id }.toSet()
+
                 for (dto in list) {
                     val entity = SaleMapper.toEntity(dto)
                     val details = SaleMapper.toDetailEntities(dto.id, dto.details)
                     val bonuses = SaleMapper.toBonusEntities(dto.id, dto.bonuses)
-                    saleDao.insertSale(entity)
-                    saleDao.insertDetails(details)
-                    saleDao.insertBonuses(bonuses)
+                    saleDao.saveCompleteSale(entity, details, bonuses)
                 }
+
+                if (status == null && paymentStatus == null && dateFrom == null && dateTo == null && clientId == null) {
+                    val localSales = saleDao.getAllSalesList()
+                    for (local in localSales) {
+                        if (!fetchedIds.contains(local.id)) {
+                            saleDao.deleteSale(local.id)
+                        }
+                    }
+                }
+
                 Result.success(Unit)
             } else {
                 Result.failure(Exception(extractSafeBackendMessage(response)))
@@ -91,9 +99,7 @@ class SalesRepositoryImpl(
                 val entity = SaleMapper.toEntity(dto)
                 val details = SaleMapper.toDetailEntities(dto.id, dto.details)
                 val bonuses = SaleMapper.toBonusEntities(dto.id, dto.bonuses)
-                saleDao.insertSale(entity)
-                saleDao.insertDetails(details)
-                saleDao.insertBonuses(bonuses)
+                saleDao.saveCompleteSale(entity, details, bonuses)
                 Result.success(dto)
             } else {
                 val localEntity = saleDao.getSaleById(id)
@@ -125,9 +131,7 @@ class SalesRepositoryImpl(
                 val entity = SaleMapper.toEntity(dto)
                 val details = SaleMapper.toDetailEntities(dto.id, dto.details)
                 val bonuses = SaleMapper.toBonusEntities(dto.id, dto.bonuses)
-                saleDao.insertSale(entity)
-                saleDao.insertDetails(details)
-                saleDao.insertBonuses(bonuses)
+                saleDao.saveCompleteSale(entity, details, bonuses)
                 Result.success(dto)
             } else {
                 Result.failure(Exception(extractSafeBackendMessage(response)))
@@ -143,7 +147,9 @@ class SalesRepositoryImpl(
             if (response.isSuccessful && response.body() != null) {
                 val dto = response.body()!!
                 val entity = SaleMapper.toEntity(dto)
-                saleDao.insertSale(entity)
+                val details = SaleMapper.toDetailEntities(dto.id, dto.details)
+                val bonuses = SaleMapper.toBonusEntities(dto.id, dto.bonuses)
+                saleDao.saveCompleteSale(entity, details, bonuses)
                 Result.success(dto)
             } else {
                 Result.failure(Exception(extractSafeBackendMessage(response)))
@@ -309,7 +315,9 @@ class SalesRepositoryImpl(
             if (response.isSuccessful && response.body() != null) {
                 val dto = response.body()!!
                 val entity = SaleMapper.toEntity(dto)
-                saleDao.insertSale(entity)
+                val details = SaleMapper.toDetailEntities(dto.id, dto.details)
+                val bonuses = SaleMapper.toBonusEntities(dto.id, dto.bonuses)
+                saleDao.saveCompleteSale(entity, details, bonuses)
                 Result.success(dto)
             } else {
                 Result.failure(Exception(extractSafeBackendMessage(response)))

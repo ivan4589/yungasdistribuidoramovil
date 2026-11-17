@@ -116,10 +116,17 @@ class YungasApplication : Application() {
             .addConverterFactory(GsonConverterFactory.create())
             .build()
 
-        authApi = retrofit.create(AuthApi::class.java)
-        authRepository = AuthRepositoryImpl(authApi, cookieJar, offlineSessionManager)
-
         database = AppDatabase.getInstance(this)
+        authApi = retrofit.create(AuthApi::class.java)
+        authRepository = AuthRepositoryImpl(authApi, cookieJar, offlineSessionManager) {
+            applicationScope.launch {
+                try {
+                    database.saleDao().clearSales()
+                } catch (e: Exception) {
+                    // Ignore
+                }
+            }
+        }
         clientApi = retrofit.create(ClientApi::class.java)
         locationApi = retrofit.create(LocationApi::class.java)
         clientRepository = ClientRepositoryImpl(

@@ -508,7 +508,7 @@ fun AppNavGraph() {
                         navController.popBackStack()
                     }
                 } else {
-                    val viewModel: PresaleDetailViewModel = viewModel(factory = PresaleDetailViewModelFactory(salesRepo, saleId, isAdmin))
+                    val viewModel: PresaleDetailViewModel = viewModel(factory = PresaleDetailViewModelFactory(salesRepo, productRepo, saleId, isAdmin))
                     PresaleDetailScreen(
                         viewModel = viewModel,
                         isAdmin = isAdmin,

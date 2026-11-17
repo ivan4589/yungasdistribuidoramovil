@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.dp
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import com.example.yungasdistribuidora.data.remote.dto.DeliveryProductDto
+import com.example.yungasdistribuidora.domain.model.Product
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -33,6 +34,7 @@ fun PresaleDetailScreen(
     var confirmWhatsApp by remember { mutableStateOf(false) }
     var showDeliveryDialog by remember { mutableStateOf(false) }
     var showReturnDialog by remember { mutableStateOf(false) }
+    var showActiveDeliveryEditDialog by remember { mutableStateOf(false) }
     var modifyingItem by remember { mutableStateOf<DeliveryProductDto?>(null) }
     var newQtyInput by remember { mutableStateOf("") }
     var eventQty by remember { mutableStateOf("") }
@@ -142,6 +144,145 @@ fun PresaleDetailScreen(
             },
             dismissButton = { TextButton(onClick = { showReturnDialog = false }) { Text("Cancelar") } }
         )
+    }
+
+    if (showActiveDeliveryEditDialog) {
+        val catalogProducts by viewModel.catalogProducts.collectAsState()
+        val currentProducts = delivery?.products ?: emptyList()
+
+        val editableQuantities = remember(currentProducts) {
+            mutableStateMapOf<String, String>().apply {
+                currentProducts.forEach { p ->
+                    put(p.productId ?: "", (p.ordered ?: 0).toString())
+                }
+            }
+        }
+        var showAddProductDialog by remember { mutableStateOf(false) }
+        var selectedCatalogProd by remember { mutableStateOf<Product?>(null) }
+        var newProdQtyInput by remember { mutableStateOf("1") }
+        var productDropdownExpanded by remember { mutableStateOf(false) }
+
+        AlertDialog(
+            onDismissRequest = { showActiveDeliveryEditDialog = false },
+            title = { Text("Editar pedido con reparto activo") },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 400.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("Ajuste cantidades solicitadas o agregue nuevos productos. No puede reducir por debajo de lo ya entregado.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                    HorizontalDivider()
+
+                    currentProducts.forEach { p ->
+                        val pId = p.productId ?: ""
+                        val delivered = p.delivered ?: 0
+                        val currentQtyStr = editableQuantities[pId] ?: (p.ordered ?: 0).toString()
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(p.name ?: pId, style = MaterialTheme.typography.bodyMedium)
+                                Text("Entregado: $delivered | Pendiente: ${p.pending ?: 0}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                            }
+                            OutlinedTextField(
+                                value = currentQtyStr,
+                                onValueChange = { editableQuantities[pId] = it },
+                                label = { Text("Cant.") },
+                                modifier = Modifier.width(90.dp)
+                            )
+                        }
+                    }
+
+                    HorizontalDivider()
+                    Button(onClick = { showAddProductDialog = true }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Default.Add, contentDescription = null)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Agregar nuevo producto")
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    val updates = mutableMapOf<String, Int>()
+                    var isValid = true
+                    for ((pId, qStr) in editableQuantities) {
+                        val q = qStr.toIntOrNull()
+                        if (q == null || q < 0) {
+                            isValid = false
+                            break
+                        }
+                        val prod = currentProducts.find { it.productId == pId }
+                        val delivered = prod?.delivered ?: 0
+                        if (q < delivered) {
+                            isValid = false
+                            break
+                        }
+                        updates[pId] = q
+                    }
+                    if (isValid) {
+                        val rev = delivery?.revision ?: 0
+                        viewModel.updateDeliveryQuantities(updates, rev) {
+                            showActiveDeliveryEditDialog = false
+                        }
+                    }
+                }) { Text("Guardar cambios") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showActiveDeliveryEditDialog = false }) { Text("Cancelar") }
+            }
+        )
+
+        if (showAddProductDialog) {
+            AlertDialog(
+                onDismissRequest = { showAddProductDialog = false },
+                title = { Text("Agregar producto al pedido") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            OutlinedButton(onClick = { productDropdownExpanded = true }, modifier = Modifier.fillMaxWidth()) {
+                                Text(selectedCatalogProd?.name ?: "Seleccione producto del catálogo")
+                            }
+                            DropdownMenu(expanded = productDropdownExpanded, onDismissRequest = { productDropdownExpanded = false }) {
+                                catalogProducts.forEach { cp ->
+                                    DropdownMenuItem(
+                                        text = { Text("${cp.name} (Stock: ${cp.availableStock.toInt()})") },
+                                        onClick = { selectedCatalogProd = cp; productDropdownExpanded = false }
+                                    )
+                                }
+                            }
+                        }
+                        OutlinedTextField(
+                            value = newProdQtyInput,
+                            onValueChange = { newProdQtyInput = it },
+                            label = { Text("Cantidad solicitada") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(onClick = {
+                        val selProd = selectedCatalogProd
+                        val qty = newProdQtyInput.toIntOrNull() ?: 1
+                        if (selProd != null && qty > 0) {
+                            val pId = selProd.id
+                            editableQuantities[pId] = qty.toString()
+                            showAddProductDialog = false
+                            selectedCatalogProd = null
+                            newProdQtyInput = "1"
+                        }
+                    }) { Text("Agregar") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showAddProductDialog = false }) { Text("Cancelar") }
+                }
+            )
+        }
     }
 
     modifyingItem?.let { item ->
@@ -398,26 +539,20 @@ fun PresaleDetailScreen(
                 // Edit order button (if PENDING)
                 if (s.status == "PENDING") {
                     val deliveryActive = d?.deliveryMode == true
-                    if (!deliveryActive) {
-                        Button(
-                            onClick = onEdit,
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
-                        ) {
-                            Icon(Icons.Default.Edit, contentDescription = null)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Editar pedido")
-                        }
-                    } else {
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-                        ) {
-                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text("Reparto activo", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                                Text("La edición comercial completa está deshabilitada. Utilice 'Modificar pedido' en cada producto para ajustar cantidades de entrega.", style = MaterialTheme.typography.bodySmall)
+                    Button(
+                        onClick = {
+                            if (!deliveryActive) {
+                                onEdit()
+                            } else {
+                                showActiveDeliveryEditDialog = true
                             }
-                        }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                    ) {
+                        Icon(Icons.Default.Edit, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Editar pedido")
                     }
                 }
 

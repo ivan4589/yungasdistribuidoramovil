@@ -7,6 +7,8 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.yungasdistribuidora.data.remote.dto.*
+import com.example.yungasdistribuidora.domain.model.Product
+import com.example.yungasdistribuidora.domain.repository.ProductRepository
 import com.example.yungasdistribuidora.domain.repository.SalesRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -17,6 +19,7 @@ import java.util.*
 
 class PresaleDetailViewModel(
     private val salesRepository: SalesRepository,
+    private val productRepository: ProductRepository?,
     private val saleId: String,
     private val isAdmin: Boolean
 ) : ViewModel() {
@@ -26,6 +29,9 @@ class PresaleDetailViewModel(
 
     private val _delivery = MutableStateFlow<DeliveryResponseDto?>(null)
     val delivery = _delivery.asStateFlow()
+
+    private val _catalogProducts = MutableStateFlow<List<Product>>(emptyList())
+    val catalogProducts = _catalogProducts.asStateFlow()
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading = _isLoading.asStateFlow()
@@ -41,6 +47,16 @@ class PresaleDetailViewModel(
     init {
         loadSale()
         loadDelivery()
+        loadCatalog()
+    }
+
+    private fun loadCatalog() {
+        if (productRepository == null) return
+        viewModelScope.launch {
+            productRepository.getProducts(null, null).collect {
+                _catalogProducts.value = it
+            }
+        }
     }
 
     fun loadSale() {
@@ -122,11 +138,36 @@ class PresaleDetailViewModel(
         }
     }
 
+    fun updateDeliveryQuantities(updates: Map<String, Int>, expectedRevision: Int, onComplete: () -> Unit) {
+        if (_isLoading.value) return
+        viewModelScope.launch {
+            _isLoading.value = true
+            var success = true
+            for ((productId, qty) in updates) {
+                val req = UpdateDeliveryQuantityRequestDto(productId = productId, quantity = qty, expectedRevision = expectedRevision)
+                val result = salesRepository.updateDeliveryQuantity(idempotencyKey, saleId, req)
+                if (result.isFailure) {
+                    _errorMessage.value = result.exceptionOrNull()?.message ?: "Error al actualizar producto $productId"
+                    success = false
+                    break
+                }
+                idempotencyKey = UUID.randomUUID().toString()
+            }
+            if (success) {
+                _successMessage.value = "Pedido actualizado correctamente"
+                loadSale()
+                loadDelivery()
+                onComplete()
+            }
+            _isLoading.value = false
+        }
+    }
+
     fun confirmSale() {
         if (_isLoading.value) return
         viewModelScope.launch {
             _isLoading.value = true
-            val apiCall = if (_delivery.value != null) {
+            val apiCall = if (_delivery.value?.deliveryMode == true) {
                 salesRepository.confirmDelivery(idempotencyKey, saleId)
             } else {
                 salesRepository.confirmSale(idempotencyKey, saleId)

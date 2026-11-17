@@ -6,7 +6,7 @@ data class DeliveryResponseDto(
     @SerializedName("saleId") val saleId: String?,
     @SerializedName("saleNumber") val saleNumber: String?,
     @SerializedName("saleStatus") val saleStatus: String?,
-    @SerializedName("deliveryMode") val deliveryMode: String?,
+    @SerializedName("deliveryMode") val deliveryMode: Boolean?,
     @SerializedName("revision") val revision: Int?,
     @SerializedName("complete") val complete: Boolean?,
     @SerializedName("products") val products: List<DeliveryProductDto>?,

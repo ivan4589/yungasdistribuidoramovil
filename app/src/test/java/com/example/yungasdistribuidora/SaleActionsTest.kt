@@ -49,7 +49,7 @@ class SaleActionsTest {
         response("{}", 400)
         val request = CreateSaleRequestDto("c1", listOf(SaleDetailRequestDto("p1", 5, 11.0, true)),
             emptyList(), 0.0, "", "CASH", null, 55.0, "CASH", "payment")
-        api.updateSale("edit-key", "s1", request)
+        api.updateSale("edit-key", "s1", request.forUpdate())
         val sent = server.takeRequest()
         assertEquals("PATCH", sent.method)
         assertEquals("/api/sales/s1", sent.path)

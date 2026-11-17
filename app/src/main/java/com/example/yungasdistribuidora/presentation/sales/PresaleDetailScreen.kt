@@ -280,7 +280,7 @@ fun PresaleDetailScreen(
                     }
                 }
 
-                val deliveryNotStarted = d == null || d?.deliveryMode.isNullOrBlank() || d?.revision == null
+                val deliveryNotStarted = d == null || d?.deliveryMode != true
 
                 if (deliveryNotStarted && s.status != "CANCELLED" && s.status != "CONFIRMED") {
                     Button(
@@ -397,14 +397,27 @@ fun PresaleDetailScreen(
 
                 // Edit order button (if PENDING)
                 if (s.status == "PENDING") {
-                    Button(
-                        onClick = onEdit,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
-                    ) {
-                        Icon(Icons.Default.Edit, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Editar pedido")
+                    val deliveryActive = d?.deliveryMode == true
+                    if (!deliveryActive) {
+                        Button(
+                            onClick = onEdit,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                        ) {
+                            Icon(Icons.Default.Edit, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Editar pedido")
+                        }
+                    } else {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("Reparto activo", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                                Text("La edición comercial completa está deshabilitada. Utilice 'Modificar pedido' en cada producto para ajustar cantidades de entrega.", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
                     }
                 }
 

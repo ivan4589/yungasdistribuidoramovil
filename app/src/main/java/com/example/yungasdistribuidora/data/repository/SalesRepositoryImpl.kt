@@ -117,7 +117,7 @@ class SalesRepositoryImpl(
         }
     }
 
-    override suspend fun updateSale(idempotencyKey: String, id: String, request: CreateSaleRequestDto): Result<SaleResponseDto> {
+    override suspend fun updateSale(idempotencyKey: String, id: String, request: UpdateSaleRequestDto): Result<SaleResponseDto> {
         return try {
             val response = salesApi.updateSale(idempotencyKey, id, request)
             if (response.isSuccessful && response.body() != null) {

@@ -23,7 +23,7 @@ interface SalesRepository : PresaleRepository {
     ): Result<Unit>
 
     suspend fun getSaleById(id: String): Result<SaleResponseDto>
-    suspend fun updateSale(idempotencyKey: String, id: String, request: CreateSaleRequestDto): Result<SaleResponseDto>
+    suspend fun updateSale(idempotencyKey: String, id: String, request: UpdateSaleRequestDto): Result<SaleResponseDto>
     suspend fun confirmSale(idempotencyKey: String, id: String): Result<SaleResponseDto>
     suspend fun cancelSale(idempotencyKey: String, id: String, reason: String): Result<SaleResponseDto>
     suspend fun sendWhatsapp(id: String, resend: Boolean): Result<WhatsAppDeliverySummary>

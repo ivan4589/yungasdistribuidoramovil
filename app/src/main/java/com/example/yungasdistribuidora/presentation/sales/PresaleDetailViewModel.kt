@@ -10,18 +10,21 @@ import com.example.yungasdistribuidora.data.remote.dto.*
 import com.example.yungasdistribuidora.domain.model.Product
 import com.example.yungasdistribuidora.domain.repository.ProductRepository
 import com.example.yungasdistribuidora.domain.repository.SalesRepository
+import com.example.yungasdistribuidora.domain.usecase.CalculateProductPriceUseCase
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.text.Normalizer
 import java.util.*
 
 class PresaleDetailViewModel(
     private val salesRepository: SalesRepository,
     private val productRepository: ProductRepository?,
     private val saleId: String,
-    private val isAdmin: Boolean
+    val isAdmin: Boolean,
+    private val calculateProductPriceUseCase: CalculateProductPriceUseCase = CalculateProductPriceUseCase()
 ) : ViewModel() {
 
     private val _sale = MutableStateFlow<SaleResponseDto?>(null)
@@ -53,10 +56,15 @@ class PresaleDetailViewModel(
     private fun loadCatalog() {
         if (productRepository == null) return
         viewModelScope.launch {
-            productRepository.getProducts(null, null).collect {
-                _catalogProducts.value = it
+            productRepository.getProducts(null, null).collect { list ->
+                _catalogProducts.value = list.filter { it.isActive }
             }
         }
+    }
+
+    fun calculatePrice(product: Product, quantity: Double): Double {
+        // Can be refined with client type if available from sale
+        return calculateProductPriceUseCase(product, null, quantity)
     }
 
     fun loadSale() {
@@ -117,11 +125,11 @@ class PresaleDetailViewModel(
         }
     }
 
-    fun updateDeliveryQuantity(productId: String, quantity: Int, expectedRevision: Int) {
+    fun updateDeliveryQuantity(productId: String, quantity: Int, expectedRevision: Int, unitPrice: Double? = null) {
         if (_isLoading.value) return
         viewModelScope.launch {
             _isLoading.value = true
-            val req = UpdateDeliveryQuantityRequestDto(productId = productId, quantity = quantity, expectedRevision = expectedRevision)
+            val req = UpdateDeliveryQuantityRequestDto(productId = productId, quantity = quantity, expectedRevision = expectedRevision, unitPrice = unitPrice)
             salesRepository.updateDeliveryQuantity(idempotencyKey, saleId, req).onSuccess {
                 _delivery.value = it
                 _successMessage.value = "Cantidad actualizada"
@@ -138,13 +146,14 @@ class PresaleDetailViewModel(
         }
     }
 
-    fun updateDeliveryQuantities(updates: Map<String, Int>, expectedRevision: Int, onComplete: () -> Unit) {
+    fun updateDeliveryQuantities(updates: Map<String, Int>, unitPrices: Map<String, Double>, expectedRevision: Int, onComplete: () -> Unit) {
         if (_isLoading.value) return
         viewModelScope.launch {
             _isLoading.value = true
             var success = true
             for ((productId, qty) in updates) {
-                val req = UpdateDeliveryQuantityRequestDto(productId = productId, quantity = qty, expectedRevision = expectedRevision)
+                val uPrice = unitPrices[productId]
+                val req = UpdateDeliveryQuantityRequestDto(productId = productId, quantity = qty, expectedRevision = expectedRevision, unitPrice = uPrice)
                 val result = salesRepository.updateDeliveryQuantity(idempotencyKey, saleId, req)
                 if (result.isFailure) {
                     _errorMessage.value = result.exceptionOrNull()?.message ?: "Error al actualizar producto $productId"
@@ -259,5 +268,12 @@ class PresaleDetailViewModel(
 
     fun clearSuccess() {
         _successMessage.value = null
+    }
+
+    companion object {
+        fun String.normalize(): String {
+            val normalizer = Normalizer.normalize(this, Normalizer.Form.NFD)
+            return Regex("\\p{InCombiningDiacriticalMarks}+").replace(normalizer, "").lowercase()
+        }
     }
 }

@@ -1,6 +1,9 @@
 package com.example.yungasdistribuidora.presentation.sales
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -15,6 +18,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import com.example.yungasdistribuidora.data.remote.dto.DeliveryProductDto
 import com.example.yungasdistribuidora.domain.model.Product
+import java.text.Normalizer
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -157,10 +161,14 @@ fun PresaleDetailScreen(
                 }
             }
         }
+        val editableUnitPrices = remember(currentProducts) {
+            mutableStateMapOf<String, String>().apply {
+                currentProducts.forEach { p ->
+                    put(p.productId ?: "", (p.itemUnitPrice).toString())
+                }
+            }
+        }
         var showAddProductDialog by remember { mutableStateOf(false) }
-        var selectedCatalogProd by remember { mutableStateOf<Product?>(null) }
-        var newProdQtyInput by remember { mutableStateOf("1") }
-        var productDropdownExpanded by remember { mutableStateOf(false) }
 
         AlertDialog(
             onDismissRequest = { showActiveDeliveryEditDialog = false },
@@ -169,33 +177,50 @@ fun PresaleDetailScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 400.dp)
+                        .heightIn(max = 450.dp)
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("Ajuste cantidades solicitadas o agregue nuevos productos. No puede reducir por debajo de lo ya entregado.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                    Text("Ajuste cantidades solicitadas o precios (ADMIN). No puede reducir por debajo de lo ya entregado.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
                     HorizontalDivider()
 
                     currentProducts.forEach { p ->
                         val pId = p.productId ?: ""
                         val delivered = p.delivered ?: 0
                         val currentQtyStr = editableQuantities[pId] ?: (p.ordered ?: 0).toString()
+                        val currentPriceStr = editableUnitPrices[pId] ?: (p.itemUnitPrice).toString()
 
-                        Row(
+                        Card(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(p.name ?: pId, style = MaterialTheme.typography.bodyMedium)
+                            Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(p.name ?: pId, style = MaterialTheme.typography.titleSmall)
                                 Text("Entregado: $delivered | Pendiente: ${p.pending ?: 0}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    OutlinedTextField(
+                                        value = currentQtyStr,
+                                        onValueChange = { editableQuantities[pId] = it },
+                                        label = { Text("Cant.") },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    if (isAdmin) {
+                                        OutlinedTextField(
+                                            value = currentPriceStr,
+                                            onValueChange = { editableUnitPrices[pId] = it },
+                                            label = { Text("Precio (Bs.)") },
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    } else {
+                                        Text("Precio: Bs. $currentPriceStr", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                                    }
+                                }
                             }
-                            OutlinedTextField(
-                                value = currentQtyStr,
-                                onValueChange = { editableQuantities[pId] = it },
-                                label = { Text("Cant.") },
-                                modifier = Modifier.width(90.dp)
-                            )
                         }
                     }
 
@@ -210,6 +235,7 @@ fun PresaleDetailScreen(
             confirmButton = {
                 Button(onClick = {
                     val updates = mutableMapOf<String, Int>()
+                    val uPrices = mutableMapOf<String, Double>()
                     var isValid = true
                     for ((pId, qStr) in editableQuantities) {
                         val q = qStr.toIntOrNull()
@@ -224,10 +250,17 @@ fun PresaleDetailScreen(
                             break
                         }
                         updates[pId] = q
+                        val pStr = editableUnitPrices[pId]
+                        if (pStr != null) {
+                            val pr = pStr.toDoubleOrNull()
+                            if (pr != null && pr >= 0.0) {
+                                uPrices[pId] = pr
+                            }
+                        }
                     }
                     if (isValid) {
                         val rev = delivery?.revision ?: 0
-                        viewModel.updateDeliveryQuantities(updates, rev) {
+                        viewModel.updateDeliveryQuantities(updates, uPrices, rev) {
                             showActiveDeliveryEditDialog = false
                         }
                     }
@@ -239,47 +272,141 @@ fun PresaleDetailScreen(
         )
 
         if (showAddProductDialog) {
+            var searchQuery by remember { mutableStateOf("") }
+            var selectedCatalogProd by remember { mutableStateOf<Product?>(null) }
+            var newProdQtyInput by remember { mutableStateOf("1") }
+            var newProdPriceInput by remember { mutableStateOf("") }
+
+            val filteredCatalog = remember(catalogProducts, searchQuery) {
+                if (searchQuery.isBlank()) catalogProducts
+                else {
+                    val q = searchQuery.trim().lowercase().let {
+                        val norm = Normalizer.normalize(it, Normalizer.Form.NFD)
+                        Regex("\\p{InCombiningDiacriticalMarks}+").replace(norm, "")
+                    }
+                    catalogProducts.filter { cp ->
+                        val codeNorm = cp.code.lowercase()
+                        val nameNorm = cp.name.lowercase().let {
+                            val norm = Normalizer.normalize(it, Normalizer.Form.NFD)
+                            Regex("\\p{InCombiningDiacriticalMarks}+").replace(norm, "")
+                        }
+                        codeNorm.contains(q) || nameNorm.contains(q)
+                    }
+                }
+            }
+
             AlertDialog(
                 onDismissRequest = { showAddProductDialog = false },
-                title = { Text("Agregar producto al pedido") },
+                title = { Text("Buscar y agregar producto") },
                 text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Box(modifier = Modifier.fillMaxWidth()) {
-                            OutlinedButton(onClick = { productDropdownExpanded = true }, modifier = Modifier.fillMaxWidth()) {
-                                Text(selectedCatalogProd?.name ?: "Seleccione producto del catálogo")
-                            }
-                            DropdownMenu(expanded = productDropdownExpanded, onDismissRequest = { productDropdownExpanded = false }) {
-                                catalogProducts.forEach { cp ->
-                                    DropdownMenuItem(
-                                        text = { Text("${cp.name} (Stock: ${cp.availableStock.toInt()})") },
-                                        onClick = { selectedCatalogProd = cp; productDropdownExpanded = false }
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 450.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            label = { Text("Buscar por código o nombre...") },
+                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+
+                        val sel = selectedCatalogProd
+                        if (sel != null) {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                            ) {
+                                Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text("Seleccionado: ${sel.name}", style = MaterialTheme.typography.titleSmall)
+                                    Text("Código: ${sel.code} | Stock disp.: ${sel.availableStock.toInt()} ${sel.unit}", style = MaterialTheme.typography.bodySmall)
+
+                                    OutlinedTextField(
+                                        value = newProdQtyInput,
+                                        onValueChange = { newProdQtyInput = it },
+                                        label = { Text("Cantidad solicitada") },
+                                        modifier = Modifier.fillMaxWidth()
                                     )
+
+                                    val defaultPrice = viewModel.calculatePrice(sel, (newProdQtyInput.toDoubleOrNull() ?: 1.0))
+                                    if (newProdPriceInput.isBlank()) {
+                                        newProdPriceInput = defaultPrice.toString()
+                                    }
+
+                                    if (isAdmin) {
+                                        OutlinedTextField(
+                                            value = newProdPriceInput,
+                                            onValueChange = { newProdPriceInput = it },
+                                            label = { Text("Precio unitario (Bs.) [ADMIN]") },
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                    } else {
+                                        Text("Precio unitario: Bs. $newProdPriceInput", style = MaterialTheme.typography.bodyMedium)
+                                    }
+                                }
+                            }
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(250.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                if (filteredCatalog.isEmpty()) {
+                                    item {
+                                        Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+                                            Text("No se encontraron productos", color = MaterialTheme.colorScheme.outline)
+                                        }
+                                    }
+                                } else {
+                                    items(filteredCatalog, key = { it.id }) { cp ->
+                                        Card(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable {
+                                                    selectedCatalogProd = cp
+                                                    val defP = viewModel.calculatePrice(cp, 1.0)
+                                                    newProdPriceInput = defP.toString()
+                                                },
+                                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                                        ) {
+                                            Column(modifier = Modifier.padding(8.dp)) {
+                                                Text("[${cp.code}] ${cp.name}", style = MaterialTheme.typography.bodyMedium)
+                                                Text("Precio: Bs. ${cp.priceNormal} | Stock: ${cp.availableStock.toInt()} ${cp.unit}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
-                        OutlinedTextField(
-                            value = newProdQtyInput,
-                            onValueChange = { newProdQtyInput = it },
-                            label = { Text("Cantidad solicitada") },
-                            modifier = Modifier.fillMaxWidth()
-                        )
                     }
                 },
                 confirmButton = {
                     Button(onClick = {
                         val selProd = selectedCatalogProd
                         val qty = newProdQtyInput.toIntOrNull() ?: 1
+                        val price = newProdPriceInput.toDoubleOrNull()
                         if (selProd != null && qty > 0) {
                             val pId = selProd.id
                             editableQuantities[pId] = qty.toString()
+                            if (price != null && price >= 0.0) {
+                                editableUnitPrices[pId] = price.toString()
+                            }
                             showAddProductDialog = false
-                            selectedCatalogProd = null
-                            newProdQtyInput = "1"
                         }
-                    }) { Text("Agregar") }
+                    }, enabled = selectedCatalogProd != null) { Text("Agregar al pedido") }
                 },
                 dismissButton = {
-                    TextButton(onClick = { showAddProductDialog = false }) { Text("Cancelar") }
+                    TextButton(onClick = {
+                        if (selectedCatalogProd != null) {
+                            selectedCatalogProd = null
+                        } else {
+                            showAddProductDialog = false
+                        }
+                    }) { Text(if (selectedCatalogProd != null) "Volver" else "Cancelar") }
                 }
             )
         }
@@ -356,7 +483,8 @@ fun PresaleDetailScreen(
                     name = it.productName,
                     ordered = it.quantity,
                     delivered = 0,
-                    pending = it.quantity
+                    pending = it.quantity,
+                    unitPrice = it.unitPrice
                 )
             } ?: emptyList()
 
@@ -401,7 +529,7 @@ fun PresaleDetailScreen(
                         Text("Cliente: ${s.clientName ?: s.clientId}", style = MaterialTheme.typography.bodyLarge)
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text("Tipo: ${s.saleType}", style = MaterialTheme.typography.bodyMedium)
-                            Text("Pago: ${s.paymentStatus}", style = MaterialTheme.typography.bodyMedium)
+                            Text("Pago: ${s.paymentStatus ?: "--"}", style = MaterialTheme.typography.bodyMedium)
                         }
                     }
                 }
@@ -494,6 +622,7 @@ fun PresaleDetailScreen(
                                 }
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                     Text("Solicitado: $ord | Entregado: $del | Pendiente: $pen", style = MaterialTheme.typography.bodySmall)
+                                    Text("Bs. ${"%.2f".format(prod.itemUnitPrice)} c/u", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
                                 }
                                 LinearProgressIndicator(
                                     progress = progress,

@@ -155,19 +155,26 @@ class SupabaseRealtimeManager(
                         if (newToken.isNotBlank()) {
                             val ws = webSocket
                             if (ws != null) {
-                                val refKey = "ref_${System.currentTimeMillis()}"
-                                val refreshMsg = JSONObject().apply {
-                                    put("topic", "realtime:yungas:delivery")
-                                    put("event", "access_token")
-                                    put("payload", JSONObject().put("access_token", newToken))
-                                    put("ref", refKey)
-                                }
-                                ws.send(refreshMsg.toString())
+                                listOf("realtime:yungas:delivery", "realtime:yungas:inventory")
+                                    .forEachIndexed { index, topic ->
+                                        val refreshMsg = JSONObject().apply {
+                                            put("topic", topic)
+                                            put("event", "access_token")
+                                            put("payload", JSONObject().put("access_token", newToken))
+                                            put("ref", "refresh_${System.currentTimeMillis()}_$index")
+                                        }
+                                        ws.send(refreshMsg.toString())
+                                    }
                             }
+                        }
+                        if (newToken.isNotBlank() && isRunning) {
+                            val nextDelay = ((access.expiresInSeconds ?: 300L) - 60L).coerceAtLeast(60L) * 1000L
+                            scheduleTokenRefresh(nextDelay)
                         }
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to refresh token", e)
+                    if (isRunning) scheduleTokenRefresh(60_000L)
                 }
             }
         }

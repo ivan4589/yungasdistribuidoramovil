@@ -64,8 +64,6 @@ class SalesRepositoryImpl(
             val response = salesApi.getSales(status, paymentStatus, dateFrom, dateTo, clientId)
             if (response.isSuccessful && response.body() != null) {
                 val list = response.body()!!
-                val fetchedIds = list.map { it.id }.toSet()
-
                 for (dto in list) {
                     val entity = SaleMapper.toEntity(dto)
                     val details = SaleMapper.toDetailEntities(dto.id, dto.details)
@@ -73,14 +71,9 @@ class SalesRepositoryImpl(
                     saleDao.saveCompleteSale(entity, details, bonuses)
                 }
 
-                if (status == null && paymentStatus == null && dateFrom == null && dateTo == null && clientId == null) {
-                    val localSales = saleDao.getAllSalesList()
-                    for (local in localSales) {
-                        if (!fetchedIds.contains(local.id)) {
-                            saleDao.deleteSale(local.id)
-                        }
-                    }
-                }
+                // Do not remove local sales based solely on one API page: the endpoint can
+                // restrict results by visibility or pagination. Deletion requires a verified
+                // complete snapshot/explicit server tombstone. Keep existing cached rows.
 
                 Result.success(Unit)
             } else {
@@ -91,35 +84,48 @@ class SalesRepositoryImpl(
         }
     }
 
+    private suspend fun readCachedSale(id: String): SaleResponseDto? {
+        val entity = saleDao.getSaleById(id) ?: return null
+        return SaleMapper.toResponseDto(
+            entity, saleDao.getSaleDetails(id), saleDao.getSaleBonuses(id)
+        )
+    }
+
     override suspend fun getSaleById(id: String): Result<SaleResponseDto> {
-        return try {
-            val response = salesApi.getSaleById(id)
-            if (response.isSuccessful && response.body() != null) {
-                val dto = response.body()!!
-                val entity = SaleMapper.toEntity(dto)
-                val details = SaleMapper.toDetailEntities(dto.id, dto.details)
-                val bonuses = SaleMapper.toBonusEntities(dto.id, dto.bonuses)
-                try { saleDao.saveCompleteSale(entity, details, bonuses) } catch (_: Exception) {}
-                Result.success(dto)
-            } else {
-                val localEntity = try { saleDao.getSaleById(id) } catch (_: Exception) { null }
-                if (localEntity != null) {
-                    val details = try { saleDao.getSaleDetails(id) } catch (_: Exception) { emptyList() }
-                    val bonuses = try { saleDao.getSaleBonuses(id) } catch (_: Exception) { emptyList() }
-                    Result.success(SaleMapper.toResponseDto(localEntity, details, bonuses))
-                } else {
-                    Result.failure(Exception(extractSafeBackendMessage(response)))
-                }
-            }
+        val response = try {
+            salesApi.getSaleById(id)
         } catch (e: Exception) {
-            val localEntity = try { saleDao.getSaleById(id) } catch (_: Exception) { null }
-            if (localEntity != null) {
-                val details = try { saleDao.getSaleDetails(id) } catch (_: Exception) { emptyList() }
-                val bonuses = try { saleDao.getSaleBonuses(id) } catch (_: Exception) { emptyList() }
-                Result.success(SaleMapper.toResponseDto(localEntity, details, bonuses))
-            } else {
-                Result.failure(Exception(ErrorMapper.mapException(e)))
+            // Network failed. Try the complete local representation, without suppressing
+            // database integrity errors or fabricating empty detail/bonus lists.
+            return try {
+                val cached = readCachedSale(id)
+                if (cached != null) Result.success(cached)
+                else Result.failure(Exception(ErrorMapper.mapException(e)))
+            } catch (databaseError: Exception) {
+                Result.failure(Exception("No se pudo leer la venta local: ${databaseError.message}", databaseError))
             }
+        }
+
+        if (response.isSuccessful && response.body() != null) {
+            val dto = response.body()!!
+            return try {
+                saleDao.saveCompleteSale(
+                    SaleMapper.toEntity(dto),
+                    SaleMapper.toDetailEntities(dto.id, dto.details),
+                    SaleMapper.toBonusEntities(dto.id, dto.bonuses)
+                )
+                Result.success(dto)
+            } catch (databaseError: Exception) {
+                Result.failure(Exception("No se pudo almacenar la venta en Room: ${databaseError.message}", databaseError))
+            }
+        }
+
+        return try {
+            val cached = readCachedSale(id)
+            if (cached != null) Result.success(cached)
+            else Result.failure(Exception(extractSafeBackendMessage(response)))
+        } catch (databaseError: Exception) {
+            Result.failure(Exception("No se pudo recuperar la venta local: ${databaseError.message}", databaseError))
         }
     }
 

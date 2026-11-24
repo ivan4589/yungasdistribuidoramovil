@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -36,18 +37,18 @@ fun PresaleDetailScreen(
     val successMessage by viewModel.successMessage.collectAsState()
     val context = LocalContext.current
 
-    var confirmWhatsApp by remember { mutableStateOf(false) }
-    var showDeliveryDialog by remember { mutableStateOf(false) }
-    var showReturnDialog by remember { mutableStateOf(false) }
-    var showActiveDeliveryEditDialog by remember { mutableStateOf(false) }
+    var confirmWhatsApp by rememberSaveable { mutableStateOf(false) }
+    var showDeliveryDialog by rememberSaveable { mutableStateOf(false) }
+    var showReturnDialog by rememberSaveable { mutableStateOf(false) }
+    var showActiveDeliveryEditDialog by rememberSaveable { mutableStateOf(false) }
     var returnProductTarget by remember { mutableStateOf<DeliveryProductDto?>(null) }
-    var returnEventQty by remember { mutableStateOf("") }
+    var returnEventQty by rememberSaveable { mutableStateOf("") }
     var validationMessage by remember { mutableStateOf<String?>(null) }
     
     var modifyingItem by remember { mutableStateOf<DeliveryProductDto?>(null) }
-    var newQtyInput by remember { mutableStateOf("") }
-    var eventQty by remember { mutableStateOf("") }
-    var selectedProductId by remember { mutableStateOf("") }
+    var newQtyInput by rememberSaveable { mutableStateOf("") }
+    var eventQty by rememberSaveable { mutableStateOf("") }
+    var selectedProductId by rememberSaveable { mutableStateOf("") }
 
     val savePdf = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
         uri?.let { viewModel.downloadAndOpenPdf(context, it) }
@@ -208,7 +209,7 @@ fun PresaleDetailScreen(
             }
         }
 
-        var showAddProductDialog by remember { mutableStateOf(false) }
+        var showAddProductDialog by rememberSaveable { mutableStateOf(false) }
 
         AlertDialog(
             onDismissRequest = { showActiveDeliveryEditDialog = false },
@@ -348,10 +349,11 @@ fun PresaleDetailScreen(
         )
 
         if (showAddProductDialog) {
-            var searchQuery by remember { mutableStateOf("") }
-            var selectedCatalogProd by remember { mutableStateOf<Product?>(null) }
-            var newProdQtyInput by remember { mutableStateOf("1") }
-            var newProdPriceInput by remember { mutableStateOf("") }
+            var searchQuery by rememberSaveable { mutableStateOf("") }
+            var selectedCatalogProdId by rememberSaveable { mutableStateOf<String?>(null) }
+            val selectedCatalogProd = catalogProducts.firstOrNull { it.id == selectedCatalogProdId }
+            var newProdQtyInput by rememberSaveable { mutableStateOf("1") }
+            var newProdPriceInput by rememberSaveable { mutableStateOf("") }
 
             val filteredCatalog = remember(catalogProducts, searchQuery) {
                 if (searchQuery.isBlank()) catalogProducts
@@ -448,7 +450,7 @@ fun PresaleDetailScreen(
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .clickable {
-                                                    selectedCatalogProd = cp
+                                                    selectedCatalogProdId = cp.id
                                                     val defP = viewModel.calculatePrice(cp, 1.0)
                                                     newProdPriceInput = defP.toString()
                                                 },
@@ -474,7 +476,7 @@ fun PresaleDetailScreen(
                             val pr = if (isAdmin && price != null && price >= 0.0) price else viewModel.calculatePrice(selProd, qty.toDouble())
                             viewModel.addProductToDraft(selProd, qty, pr)
                             showAddProductDialog = false
-                            selectedCatalogProd = null
+                            selectedCatalogProdId = null
                             newProdQtyInput = "1"
                             newProdPriceInput = ""
                         }
@@ -483,7 +485,7 @@ fun PresaleDetailScreen(
                 dismissButton = {
                     TextButton(onClick = {
                         if (selectedCatalogProd != null) {
-                            selectedCatalogProd = null
+                            selectedCatalogProdId = null
                         } else {
                             showAddProductDialog = false
                         }

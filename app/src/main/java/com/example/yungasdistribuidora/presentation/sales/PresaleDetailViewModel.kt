@@ -8,6 +8,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.yungasdistribuidora.data.remote.dto.*
 import com.example.yungasdistribuidora.domain.model.Product
+import com.example.yungasdistribuidora.domain.repository.ClientRepository
 import com.example.yungasdistribuidora.domain.repository.ProductRepository
 import com.example.yungasdistribuidora.domain.repository.SalesRepository
 import com.example.yungasdistribuidora.domain.usecase.CalculateProductPriceUseCase
@@ -31,6 +32,7 @@ data class EditDeliveryLine(
 class PresaleDetailViewModel(
     private val salesRepository: SalesRepository,
     private val productRepository: ProductRepository?,
+    private val clientRepository: ClientRepository,
     private val saleId: String,
     val isAdmin: Boolean,
     private val calculateProductPriceUseCase: CalculateProductPriceUseCase = CalculateProductPriceUseCase()
@@ -41,6 +43,9 @@ class PresaleDetailViewModel(
 
     private val _delivery = MutableStateFlow<DeliveryResponseDto?>(null)
     val delivery = _delivery.asStateFlow()
+
+    private val _clientType = MutableStateFlow<String?>(null)
+    val clientType = _clientType.asStateFlow()
 
     private val _catalogProducts = MutableStateFlow<List<Product>>(emptyList())
     val catalogProducts = _catalogProducts.asStateFlow()
@@ -128,14 +133,17 @@ class PresaleDetailViewModel(
     }
 
     fun calculatePrice(product: Product, quantity: Double): Double {
-        return calculateProductPriceUseCase(product, null, quantity)
+        return calculateProductPriceUseCase(product, _clientType.value, quantity)
     }
 
     fun loadSale() {
         viewModelScope.launch {
             _isLoading.value = true
-            salesRepository.getSaleById(saleId).onSuccess {
-                _sale.value = it
+            salesRepository.getSaleById(saleId).onSuccess { sale ->
+                _sale.value = sale
+                clientRepository.getClientById(sale.clientId).onSuccess { client ->
+                    _clientType.value = client.type.name
+                }
             }.onFailure {
                 _errorMessage.value = it.message ?: "Error al cargar la venta"
             }

@@ -303,7 +303,6 @@ class PresaleDetailViewModel(
                             }
                             _delivery.value = deliveryDto
                             appliedChanges++
-                    appliedChanges++
                         } else {
                             val err = result.exceptionOrNull()
                             _errorMessage.value = err?.message ?: "Error al retirar producto"

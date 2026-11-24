@@ -26,6 +26,7 @@ class SupabaseRealtimeManager(
     private var isRunning = false
     private var heartbeatJob: Job? = null
     private var tokenRefreshJob: Job? = null
+    private var reconnectJob: Job? = null
 
     fun start() {
         if (isRunning) return
@@ -99,12 +100,14 @@ class SupabaseRealtimeManager(
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                if (this@SupabaseRealtimeManager.webSocket !== webSocket) return
                 Log.e(TAG, "WebSocket failure", t)
                 stopHeartbeat()
                 reconnect()
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                if (this@SupabaseRealtimeManager.webSocket !== webSocket) return
                 Log.d(TAG, "WebSocket closed: $reason")
                 stopHeartbeat()
                 reconnect()
@@ -171,11 +174,30 @@ class SupabaseRealtimeManager(
     }
 
     private fun reconnect() {
-        if (!isRunning) return
-        scope.launch {
+        if (!isRunning || reconnectJob?.isActive == true) return
+        reconnectJob = scope.launch {
             delay(5_000)
-            if (isRunning) {
-                start()
+            while (isRunning) {
+                try {
+                    val response = salesApi.getRealtimeAccess()
+                    val access = response.body()
+                    if (response.isSuccessful && access != null) {
+                        val token = access.resolvedToken.orEmpty()
+                        val url = access.resolvedUrl
+                        val wsUrl = if (!url.isNullOrBlank() && !url.contains("api.yungasdistribuidora.cc")) {
+                            url
+                        } else {
+                            "$SUPABASE_WS_URL?apikey=$SUPABASE_ANON_KEY&vsn=1.0.0"
+                        }
+                        connectWebSocket(wsUrl, token)
+                        scheduleTokenRefresh(((access.expiresInSeconds ?: 300L) - 60L).coerceAtLeast(60L) * 1000L)
+                        return@launch
+                    }
+                    Log.w(TAG, "Realtime reconnect access unavailable: HTTP ${response.code()}")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Realtime reconnect failed", e)
+                }
+                delay(10_000)
             }
         }
     }
@@ -183,6 +205,8 @@ class SupabaseRealtimeManager(
     fun stop() {
         isRunning = false
         stopHeartbeat()
+        reconnectJob?.cancel()
+        reconnectJob = null
         tokenRefreshJob?.cancel()
         tokenRefreshJob = null
         webSocket?.close(1000, "Client stopped")

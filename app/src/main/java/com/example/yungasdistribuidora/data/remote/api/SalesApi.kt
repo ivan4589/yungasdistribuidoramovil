@@ -29,7 +29,7 @@ interface SalesApi {
     suspend fun updateSale(
         @Header("Idempotency-Key") idempotencyKey: String,
         @Path("id") id: String,
-        @Body request: CreateSaleRequestDto
+        @Body request: UpdateSaleRequestDto
     ): Response<SaleResponseDto>
 
     @PATCH("sales/{id}/confirm")

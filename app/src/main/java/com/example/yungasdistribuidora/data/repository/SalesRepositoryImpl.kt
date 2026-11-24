@@ -64,12 +64,13 @@ class SalesRepositoryImpl(
             val response = salesApi.getSales(status, paymentStatus, dateFrom, dateTo, clientId)
             if (response.isSuccessful && response.body() != null) {
                 val list = response.body()!!
-                for (dto in list) {
-                    val entity = SaleMapper.toEntity(dto)
-                    val details = SaleMapper.toDetailEntities(dto.id, dto.details)
-                    val bonuses = SaleMapper.toBonusEntities(dto.id, dto.bonuses)
-                    saleDao.saveCompleteSale(entity, details, bonuses)
-                }
+                // All changes in the received page succeed or roll back together.
+                // We do not interpret a missing row as a server deletion.
+                saleDao.saveRemoteBatch(
+                    sales = list.map(SaleMapper::toEntity),
+                    details = list.map { SaleMapper.toDetailEntities(it.id, it.details) },
+                    bonuses = list.map { SaleMapper.toBonusEntities(it.id, it.bonuses) }
+                )
 
                 // Do not remove local sales based solely on one API page: the endpoint can
                 // restrict results by visibility or pagination. Deletion requires a verified

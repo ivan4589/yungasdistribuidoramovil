@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -31,23 +32,26 @@ fun PresaleDetailScreen(
     val sale by viewModel.sale.collectAsState()
     val delivery by viewModel.delivery.collectAsState()
     val editLines by viewModel.editDraftLines.collectAsState()
+    val clientType by viewModel.clientType.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
     val successMessage by viewModel.successMessage.collectAsState()
     val context = LocalContext.current
 
-    var confirmWhatsApp by remember { mutableStateOf(false) }
-    var showDeliveryDialog by remember { mutableStateOf(false) }
-    var showReturnDialog by remember { mutableStateOf(false) }
-    var showActiveDeliveryEditDialog by remember { mutableStateOf(false) }
-    var returnProductTarget by remember { mutableStateOf<DeliveryProductDto?>(null) }
-    var returnEventQty by remember { mutableStateOf("") }
+    var confirmWhatsApp by rememberSaveable { mutableStateOf(false) }
+    var showDeliveryDialog by rememberSaveable { mutableStateOf(false) }
+    var showReturnDialog by rememberSaveable { mutableStateOf(false) }
+    var showActiveDeliveryEditDialog by rememberSaveable { mutableStateOf(false) }
+    var returnProductTargetId by rememberSaveable { mutableStateOf<String?>(null) }
+    val returnProductTarget = delivery?.products?.firstOrNull { it.productId == returnProductTargetId }
+    var returnEventQty by rememberSaveable { mutableStateOf("") }
     var validationMessage by remember { mutableStateOf<String?>(null) }
     
-    var modifyingItem by remember { mutableStateOf<DeliveryProductDto?>(null) }
-    var newQtyInput by remember { mutableStateOf("") }
-    var eventQty by remember { mutableStateOf("") }
-    var selectedProductId by remember { mutableStateOf("") }
+    var modifyingItemId by rememberSaveable { mutableStateOf<String?>(null) }
+    val modifyingItem = delivery?.products?.firstOrNull { it.productId == modifyingItemId }
+    var newQtyInput by rememberSaveable { mutableStateOf("") }
+    var eventQty by rememberSaveable { mutableStateOf("") }
+    var selectedProductId by rememberSaveable { mutableStateOf("") }
 
     val savePdf = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
         uri?.let { viewModel.downloadAndOpenPdf(context, it) }
@@ -157,7 +161,7 @@ fun PresaleDetailScreen(
 
     returnProductTarget?.let { target ->
         AlertDialog(
-            onDismissRequest = { returnProductTarget = null; returnEventQty = "" },
+            onDismissRequest = { returnProductTargetId = null; returnEventQty = "" },
             title = { Text("Registrar Devolución: ${target.name ?: target.productId}") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -176,13 +180,13 @@ fun PresaleDetailScreen(
                     val rev = delivery?.revision ?: 0
                     if (qty > 0 && qty <= (target.delivered ?: 0)) {
                         viewModel.recordDeliveryEvent(target.productId ?: "", "RETURN", qty, rev)
-                        returnProductTarget = null
+                        returnProductTargetId = null
                         returnEventQty = ""
                     }
                 }) { Text("Confirmar Devolución") }
             },
             dismissButton = {
-                TextButton(onClick = { returnProductTarget = null; returnEventQty = "" }) { Text("Cancelar") }
+                TextButton(onClick = { returnProductTargetId = null; returnEventQty = "" }) { Text("Cancelar") }
             }
         )
     }
@@ -208,7 +212,7 @@ fun PresaleDetailScreen(
             }
         }
 
-        var showAddProductDialog by remember { mutableStateOf(false) }
+        var showAddProductDialog by rememberSaveable { mutableStateOf(false) }
 
         AlertDialog(
             onDismissRequest = { showActiveDeliveryEditDialog = false },
@@ -294,7 +298,7 @@ fun PresaleDetailScreen(
                                     OutlinedButton(
                                         onClick = {
                                             val targetDto = currentProducts.find { it.productId == pId } ?: DeliveryProductDto(null, pId, line.name, line.ordered, delivered, line.ordered - delivered, line.unitPrice)
-                                            returnProductTarget = targetDto
+                                            returnProductTargetId = targetDto.productId
                                         },
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
@@ -348,10 +352,12 @@ fun PresaleDetailScreen(
         )
 
         if (showAddProductDialog) {
-            var searchQuery by remember { mutableStateOf("") }
-            var selectedCatalogProd by remember { mutableStateOf<Product?>(null) }
-            var newProdQtyInput by remember { mutableStateOf("1") }
-            var newProdPriceInput by remember { mutableStateOf("") }
+            var searchQuery by rememberSaveable { mutableStateOf("") }
+            var selectedCatalogProdId by rememberSaveable { mutableStateOf<String?>(null) }
+            val selectedCatalogProd = catalogProducts.firstOrNull { it.id == selectedCatalogProdId }
+            var newProdQtyInput by rememberSaveable { mutableStateOf("1") }
+            var newProdPriceInput by rememberSaveable { mutableStateOf("") }
+            var manualNewPrice by rememberSaveable { mutableStateOf(false) }
 
             val filteredCatalog = remember(catalogProducts, searchQuery) {
                 if (searchQuery.isBlank()) catalogProducts
@@ -408,23 +414,26 @@ fun PresaleDetailScreen(
                                     )
 
                                     val defaultPrice = viewModel.calculatePrice(sel, (newProdQtyInput.toDoubleOrNull() ?: 1.0))
-                                    if (newProdPriceInput.isBlank()) {
-                                        newProdPriceInput = defaultPrice.toString()
+                                    if (clientType == null) {
+                                        Text("Tipo de cliente no verificado: el precio mostrado es provisional.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.error)
                                     }
-
                                     val qN = newProdQtyInput.toIntOrNull() ?: 1
-                                    val pN = newProdPriceInput.toDoubleOrNull() ?: defaultPrice
+                                    val pN = if (isAdmin && manualNewPrice) {
+                                        newProdPriceInput.toDoubleOrNull() ?: defaultPrice
+                                    } else defaultPrice
                                     val subtotalNew = qN * pN
 
                                     if (isAdmin) {
                                         OutlinedTextField(
-                                            value = newProdPriceInput,
-                                            onValueChange = { newProdPriceInput = it },
+                                            value = if (manualNewPrice) newProdPriceInput else defaultPrice.toString(),
+                                            onValueChange = { manualNewPrice = true; newProdPriceInput = it },
                                             label = { Text("Precio unitario (Bs.) [ADMIN]") },
                                             modifier = Modifier.fillMaxWidth()
                                         )
                                     } else {
-                                        Text("Precio unitario: Bs. $newProdPriceInput", style = MaterialTheme.typography.bodyMedium)
+                                        Text("Precio unitario: Bs. $defaultPrice", style = MaterialTheme.typography.bodyMedium)
                                     }
                                     Text("Subtotal: Bs. ${"%.2f".format(subtotalNew)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                                 }
@@ -448,9 +457,10 @@ fun PresaleDetailScreen(
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .clickable {
-                                                    selectedCatalogProd = cp
+                                                    selectedCatalogProdId = cp.id
                                                     val defP = viewModel.calculatePrice(cp, 1.0)
                                                     newProdPriceInput = defP.toString()
+                                                    manualNewPrice = false
                                                 },
                                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                                         ) {
@@ -471,19 +481,20 @@ fun PresaleDetailScreen(
                         val qty = newProdQtyInput.toIntOrNull() ?: 1
                         val price = newProdPriceInput.toDoubleOrNull()
                         if (selProd != null && qty > 0) {
-                            val pr = if (isAdmin && price != null && price >= 0.0) price else viewModel.calculatePrice(selProd, qty.toDouble())
+                            val pr = if (isAdmin && manualNewPrice && price != null && price > 0.0 && price.isFinite()) price else viewModel.calculatePrice(selProd, qty.toDouble())
                             viewModel.addProductToDraft(selProd, qty, pr)
                             showAddProductDialog = false
-                            selectedCatalogProd = null
+                            selectedCatalogProdId = null
                             newProdQtyInput = "1"
                             newProdPriceInput = ""
+                            manualNewPrice = false
                         }
                     }, enabled = selectedCatalogProd != null) { Text("Agregar al pedido") }
                 },
                 dismissButton = {
                     TextButton(onClick = {
                         if (selectedCatalogProd != null) {
-                            selectedCatalogProd = null
+                            selectedCatalogProdId = null
                         } else {
                             showAddProductDialog = false
                         }
@@ -495,7 +506,7 @@ fun PresaleDetailScreen(
 
     modifyingItem?.let { item ->
         AlertDialog(
-            onDismissRequest = { modifyingItem = null; newQtyInput = "" },
+            onDismissRequest = { modifyingItemId = null; newQtyInput = "" },
             title = { Text("Modificar cantidad solicitada: ${item.name ?: item.productId}") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -513,11 +524,11 @@ fun PresaleDetailScreen(
                     val q = newQtyInput.toIntOrNull() ?: item.ordered ?: 0
                     val rev = delivery?.revision ?: 0
                     viewModel.updateDeliveryQuantity(item.productId ?: "", q, rev)
-                    modifyingItem = null
+                    modifyingItemId = null
                     newQtyInput = ""
                 }) { Text("Actualizar") }
             },
-            dismissButton = { TextButton(onClick = { modifyingItem = null; newQtyInput = "" }) { Text("Cancelar") } }
+            dismissButton = { TextButton(onClick = { modifyingItemId = null; newQtyInput = "" }) { Text("Cancelar") } }
         )
     }
 
@@ -714,7 +725,7 @@ fun PresaleDetailScreen(
                                 )
                                 if (d != null && s.status != "CONFIRMED" && s.status != "CANCELLED") {
                                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                                        TextButton(onClick = { modifyingItem = prod }) {
+                                        TextButton(onClick = { modifyingItemId = prod.productId }) {
                                             Text("Modificar pedido")
                                         }
                                     }

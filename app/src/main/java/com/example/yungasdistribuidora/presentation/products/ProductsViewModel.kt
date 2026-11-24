@@ -69,6 +69,10 @@ class ProductsViewModel(
         Pair(catId, subCatId)
     }.flatMapLatest { (catId, subCatId) ->
         productRepository.getProducts(catId, subCatId)
+    }.catch { error ->
+        if (error is kotlinx.coroutines.CancellationException) throw error
+        _errorMessage.value = "No se pudo abrir el catálogo local: ${error.message}"
+        emit(emptyList())
     }
 
     val products: StateFlow<List<Product>> = combine(
@@ -114,12 +118,18 @@ class ProductsViewModel(
 
     private fun loadCategoriesAndSubCategories() {
         viewModelScope.launch {
-            productRepository.getCategories().collect { cats ->
+            productRepository.getCategories().catch { error ->
+                if (error is kotlinx.coroutines.CancellationException) throw error
+                _errorMessage.value = "Error al cargar categorías: ${error.message}"
+            }.collect { cats ->
                 _categories.value = cats
             }
         }
         viewModelScope.launch {
-            productRepository.getSubCategories(null).collect { subCats ->
+            productRepository.getSubCategories(null).catch { error ->
+                if (error is kotlinx.coroutines.CancellationException) throw error
+                _errorMessage.value = "Error al cargar subcategorías: ${error.message}"
+            }.collect { subCats ->
                 _subCategories.value = subCats
             }
         }

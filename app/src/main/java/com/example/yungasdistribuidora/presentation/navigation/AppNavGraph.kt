@@ -8,6 +8,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -42,7 +43,6 @@ import com.example.yungasdistribuidora.presentation.twofactor.*
 import com.example.yungasdistribuidora.presentation.unauthorized.RolNoDisponibleScreen
 import com.example.yungasdistribuidora.presentation.vendedor.InicioVendedorScreen
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -76,6 +76,9 @@ fun AppNavGraph() {
 
     val navigateToTab = { route: String ->
         navController.navigate(route) {
+            popUpTo(navController.graph.findStartDestination().id) {
+                saveState = true
+            }
             launchSingleTop = true
             restoreState = true
         }
@@ -96,18 +99,18 @@ fun AppNavGraph() {
                 SplashScreen(
                     viewModel = viewModel,
                     onNavigateOnline = { route ->
+                        scope.launch {
                         isOfflineMode = false
-                        runBlocking {
-                            authRepo.getCurrentUser().onSuccess { user ->
+                                                    authRepo.getCurrentUser().onSuccess { user ->
                                 currentUserName = user.name
                                 currentUserEmail = user.email
                                 currentUserRole = user.role
                             }
-                        }
                         appLockManager.requireUnlockAfterSessionRestore()
                         app.realtimeManager.start()
                         navController.navigate(route) {
                             popUpTo("splash") { inclusive = true }
+                        }
                         }
                     },
                     onNavigateOffline = { session ->
@@ -181,17 +184,17 @@ fun AppNavGraph() {
                     recoveryCodes = tempRecoveryCodes,
                     userRole = tempUserRole,
                     onNavigateToHome = { route ->
-                        runBlocking {
-                            authRepo.getCurrentUser().onSuccess { user ->
+                        scope.launch {
+                                                    authRepo.getCurrentUser().onSuccess { user ->
                                 currentUserName = user.name
                                 currentUserEmail = user.email
                                 currentUserRole = user.role
                             }
-                        }
                         appLockManager.onInteractiveAuthenticationCompleted()
                         app.realtimeManager.start()
                         navController.navigate(route) {
                             popUpTo("recovery_codes") { inclusive = true }
+                        }
                         }
                     }
                 )
@@ -206,17 +209,17 @@ fun AppNavGraph() {
                 TwoFactorVerifyScreen(
                     viewModel = viewModel,
                     onVerified = { route ->
-                        runBlocking {
-                            authRepo.getCurrentUser().onSuccess { user ->
+                        scope.launch {
+                                                    authRepo.getCurrentUser().onSuccess { user ->
                                 currentUserName = user.name
                                 currentUserEmail = user.email
                                 currentUserRole = user.role
                             }
-                        }
                         appLockManager.onInteractiveAuthenticationCompleted()
                         app.realtimeManager.start()
                         navController.navigate(route) {
                             popUpTo("login") { inclusive = true }
+                        }
                         }
                     },
                     onNavigateToRecovery = {
@@ -239,17 +242,17 @@ fun AppNavGraph() {
                 TwoFactorRecoveryScreen(
                     viewModel = viewModel,
                     onRecovered = { route ->
-                        runBlocking {
-                            authRepo.getCurrentUser().onSuccess { user ->
+                        scope.launch {
+                                                    authRepo.getCurrentUser().onSuccess { user ->
                                 currentUserName = user.name
                                 currentUserEmail = user.email
                                 currentUserRole = user.role
                             }
-                        }
                         appLockManager.onInteractiveAuthenticationCompleted()
                         app.realtimeManager.start()
                         navController.navigate(route) {
                             popUpTo("recovery_codes") { inclusive = true }
+                        }
                         }
                     },
                     onBackToVerify = {
@@ -273,12 +276,17 @@ fun AppNavGraph() {
                         onNavigate = navigateToTab,
                         onReconnect = onReconnectAction,
                         onLogout = {
-                            runBlocking { authRepo.logout() }
-                            appLockManager.clear()
-                            app.realtimeManager.stop()
-                            isOfflineMode = false
-                            navController.navigate("login") {
-                                popUpTo(0) { inclusive = true }
+                            scope.launch {
+                                try {
+                                    authRepo.logout()
+                                } finally {
+                                    appLockManager.clear()
+                                    app.realtimeManager.stop()
+                                    isOfflineMode = false
+                                    navController.navigate("login") {
+                                        popUpTo(0) { inclusive = true }
+                                    }
+                                }
                             }
                         }
                     )
@@ -300,12 +308,17 @@ fun AppNavGraph() {
                         onNavigate = navigateToTab,
                         onReconnect = onReconnectAction,
                         onLogout = {
-                            runBlocking { authRepo.logout() }
-                            appLockManager.clear()
-                            app.realtimeManager.stop()
-                            isOfflineMode = false
-                            navController.navigate("login") {
-                                popUpTo(0) { inclusive = true }
+                            scope.launch {
+                                try {
+                                    authRepo.logout()
+                                } finally {
+                                    appLockManager.clear()
+                                    app.realtimeManager.stop()
+                                    isOfflineMode = false
+                                    navController.navigate("login") {
+                                        popUpTo(0) { inclusive = true }
+                                    }
+                                }
                             }
                         }
                     )
@@ -321,13 +334,18 @@ fun AppNavGraph() {
                     lastValidationTime = lastValidationTimeStr,
                     onNavigate = navigateToTab,
                     onLogout = {
-                        runBlocking { authRepo.logout() }
-                        appLockManager.clear()
-                        app.realtimeManager.stop()
-                        isOfflineMode = false
-                        navController.navigate("login") {
-                            popUpTo(0) { inclusive = true }
+                        scope.launch {
+                        try {
+                            authRepo.logout()
+                        } finally {
+                            appLockManager.clear()
+                            app.realtimeManager.stop()
+                            isOfflineMode = false
+                            navController.navigate("login") {
+                                popUpTo(0) { inclusive = true }
+                            }
                         }
+                    }
                     }
                 )
             }
@@ -337,12 +355,17 @@ fun AppNavGraph() {
                     ConnectionStatusBanner(isOffline = isOfflineMode, lastValidationTime = lastValidationTimeStr)
                     RolNoDisponibleScreen(
                         onLogout = {
-                            runBlocking { authRepo.logout() }
-                            appLockManager.clear()
-                            app.realtimeManager.stop()
-                            isOfflineMode = false
-                            navController.navigate("login") {
-                                popUpTo(0) { inclusive = true }
+                            scope.launch {
+                                try {
+                                    authRepo.logout()
+                                } finally {
+                                    appLockManager.clear()
+                                    app.realtimeManager.stop()
+                                    isOfflineMode = false
+                                    navController.navigate("login") {
+                                        popUpTo(0) { inclusive = true }
+                                    }
+                                }
                             }
                         }
                     )
@@ -368,7 +391,7 @@ fun AppNavGraph() {
                 arguments = listOf(navArgument("id") { type = NavType.StringType })
             ) { backStackEntry ->
                 val clientId = backStackEntry.arguments?.getString("id") ?: ""
-                val canEdit = currentUserRole == UserRole.ADMIN || currentUserRole == UserRole.VENDEDOR
+                val canEdit = currentUserRole == UserRole.ADMIN
                 val canManageStatus = currentUserRole == UserRole.ADMIN
                 val viewModel: ClientDetailViewModel = viewModel(factory = ClientDetailViewModelFactory(clientRepo, clientId))
                 ClientDetailScreen(
@@ -399,7 +422,7 @@ fun AppNavGraph() {
                 arguments = listOf(navArgument("id") { type = NavType.StringType })
             ) { backStackEntry ->
                 val clientId = backStackEntry.arguments?.getString("id") ?: ""
-                val canEdit = currentUserRole == UserRole.ADMIN || currentUserRole == UserRole.VENDEDOR
+                val canEdit = currentUserRole == UserRole.ADMIN
                 if (!canEdit) {
                     LaunchedEffect(Unit) {
                         navController.popBackStack()
@@ -508,7 +531,7 @@ fun AppNavGraph() {
                         navController.popBackStack()
                     }
                 } else {
-                    val viewModel: PresaleDetailViewModel = viewModel(factory = PresaleDetailViewModelFactory(salesRepo, productRepo, saleId, isAdmin))
+                    val viewModel: PresaleDetailViewModel = viewModel(factory = PresaleDetailViewModelFactory(salesRepo, productRepo, clientRepo, saleId, isAdmin))
                     PresaleDetailScreen(
                         viewModel = viewModel,
                         isAdmin = isAdmin,

@@ -2,6 +2,7 @@ package com.example.yungasdistribuidora.data.remote.realtime
 
 import android.util.Log
 import com.example.yungasdistribuidora.data.remote.api.SalesApi
+import com.example.yungasdistribuidora.data.remote.dto.RealtimeAccessDto
 import kotlinx.coroutines.*
 import okhttp3.*
 import org.json.JSONObject
@@ -14,7 +15,6 @@ class SupabaseRealtimeManager(
     companion object {
         private const val TAG = "SupabaseRealtime"
         private const val SUPABASE_WS_URL = "wss://yungasdistribuidora.supabase.co/realtime/v1/websocket"
-        private const val SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
     }
 
     private val client = OkHttpClient.Builder()
@@ -26,6 +26,7 @@ class SupabaseRealtimeManager(
     private var isRunning = false
     private var heartbeatJob: Job? = null
     private var tokenRefreshJob: Job? = null
+    private var reconnectJob: Job? = null
 
     fun start() {
         if (isRunning) return
@@ -37,13 +38,12 @@ class SupabaseRealtimeManager(
                     if (response.isSuccessful && response.body() != null) {
                         val access = response.body()!!
                         val token = access.resolvedToken ?: ""
-                        val rUrl = access.resolvedUrl
-                        val wsUrl = if (!rUrl.isNullOrBlank() && !rUrl.contains("api.yungasdistribuidora.cc")) {
-                            rUrl
-                        } else {
-                            "$SUPABASE_WS_URL?apikey=$SUPABASE_ANON_KEY&vsn=1.0.0"
+                        val wsUrl = resolveWebSocketUrl(access)
+                        if (wsUrl == null) {
+                            Log.w(TAG, "Realtime access response missing a usable WebSocket URL/API key")
+                            delay(10_000)
+                            continue
                         }
-
                         connectWebSocket(wsUrl, token)
                         
                         val expiresIn = access.expiresInSeconds ?: 300L
@@ -56,6 +56,15 @@ class SupabaseRealtimeManager(
                 delay(10_000)
             }
         }
+    }
+
+    private fun resolveWebSocketUrl(access: RealtimeAccessDto): String? {
+        val suppliedUrl = access.url ?: access.websocketUrl
+        if (!suppliedUrl.isNullOrBlank() && suppliedUrl.startsWith("wss://") &&
+            !suppliedUrl.contains("api.yungasdistribuidora.cc")) return suppliedUrl
+        val apiKey = access.apiKey ?: access.key
+        if (apiKey.isNullOrBlank()) return null
+        return "$SUPABASE_WS_URL?apikey=$apiKey&vsn=1.0.0"
     }
 
     private fun connectWebSocket(url: String, token: String) {
@@ -99,12 +108,14 @@ class SupabaseRealtimeManager(
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                if (this@SupabaseRealtimeManager.webSocket !== webSocket) return
                 Log.e(TAG, "WebSocket failure", t)
                 stopHeartbeat()
                 reconnect()
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                if (this@SupabaseRealtimeManager.webSocket !== webSocket) return
                 Log.d(TAG, "WebSocket closed: $reason")
                 stopHeartbeat()
                 reconnect()
@@ -152,30 +163,56 @@ class SupabaseRealtimeManager(
                         if (newToken.isNotBlank()) {
                             val ws = webSocket
                             if (ws != null) {
-                                val refKey = "ref_${System.currentTimeMillis()}"
-                                val refreshMsg = JSONObject().apply {
-                                    put("topic", "realtime:yungas:delivery")
-                                    put("event", "access_token")
-                                    put("payload", JSONObject().put("access_token", newToken))
-                                    put("ref", refKey)
-                                }
-                                ws.send(refreshMsg.toString())
+                                listOf("realtime:yungas:delivery", "realtime:yungas:inventory")
+                                    .forEachIndexed { index, topic ->
+                                        val refreshMsg = JSONObject().apply {
+                                            put("topic", topic)
+                                            put("event", "access_token")
+                                            put("payload", JSONObject().put("access_token", newToken))
+                                            put("ref", "refresh_${System.currentTimeMillis()}_$index")
+                                        }
+                                        ws.send(refreshMsg.toString())
+                                    }
                             }
+                        }
+                        if (newToken.isNotBlank() && isRunning) {
+                            val nextDelay = ((access.expiresInSeconds ?: 300L) - 60L).coerceAtLeast(60L) * 1000L
+                            scheduleTokenRefresh(nextDelay)
                         }
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to refresh token", e)
+                    if (isRunning) scheduleTokenRefresh(60_000L)
                 }
             }
         }
     }
 
     private fun reconnect() {
-        if (!isRunning) return
-        scope.launch {
+        if (!isRunning || reconnectJob?.isActive == true) return
+        reconnectJob = scope.launch {
             delay(5_000)
-            if (isRunning) {
-                start()
+            while (isRunning) {
+                try {
+                    val response = salesApi.getRealtimeAccess()
+                    val access = response.body()
+                    if (response.isSuccessful && access != null) {
+                        val token = access.resolvedToken.orEmpty()
+                        val wsUrl = resolveWebSocketUrl(access)
+                        if (wsUrl == null) {
+                            Log.w(TAG, "Realtime reconnect missing valid server configuration")
+                            delay(10_000)
+                            continue
+                        }
+                        connectWebSocket(wsUrl, token)
+                        scheduleTokenRefresh(((access.expiresInSeconds ?: 300L) - 60L).coerceAtLeast(60L) * 1000L)
+                        return@launch
+                    }
+                    Log.w(TAG, "Realtime reconnect access unavailable: HTTP ${response.code()}")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Realtime reconnect failed", e)
+                }
+                delay(10_000)
             }
         }
     }
@@ -183,6 +220,8 @@ class SupabaseRealtimeManager(
     fun stop() {
         isRunning = false
         stopHeartbeat()
+        reconnectJob?.cancel()
+        reconnectJob = null
         tokenRefreshJob?.cancel()
         tokenRefreshJob = null
         webSocket?.close(1000, "Client stopped")

@@ -8,6 +8,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.yungasdistribuidora.data.remote.dto.*
 import com.example.yungasdistribuidora.domain.model.Product
+import com.example.yungasdistribuidora.domain.repository.ClientRepository
 import com.example.yungasdistribuidora.domain.repository.ProductRepository
 import com.example.yungasdistribuidora.domain.repository.SalesRepository
 import com.example.yungasdistribuidora.domain.usecase.CalculateProductPriceUseCase
@@ -31,6 +32,7 @@ data class EditDeliveryLine(
 class PresaleDetailViewModel(
     private val salesRepository: SalesRepository,
     private val productRepository: ProductRepository?,
+    private val clientRepository: ClientRepository,
     private val saleId: String,
     val isAdmin: Boolean,
     private val calculateProductPriceUseCase: CalculateProductPriceUseCase = CalculateProductPriceUseCase()
@@ -41,6 +43,9 @@ class PresaleDetailViewModel(
 
     private val _delivery = MutableStateFlow<DeliveryResponseDto?>(null)
     val delivery = _delivery.asStateFlow()
+
+    private val _clientType = MutableStateFlow<String?>(null)
+    val clientType = _clientType.asStateFlow()
 
     private val _catalogProducts = MutableStateFlow<List<Product>>(emptyList())
     val catalogProducts = _catalogProducts.asStateFlow()
@@ -128,14 +133,17 @@ class PresaleDetailViewModel(
     }
 
     fun calculatePrice(product: Product, quantity: Double): Double {
-        return calculateProductPriceUseCase(product, null, quantity)
+        return calculateProductPriceUseCase(product, _clientType.value, quantity)
     }
 
     fun loadSale() {
         viewModelScope.launch {
             _isLoading.value = true
-            salesRepository.getSaleById(saleId).onSuccess {
-                _sale.value = it
+            salesRepository.getSaleById(saleId).onSuccess { sale ->
+                _sale.value = sale
+                clientRepository.getClientById(sale.clientId).onSuccess { client ->
+                    _clientType.value = client.type.name
+                }
             }.onFailure {
                 _errorMessage.value = it.message ?: "Error al cargar la venta"
             }
@@ -228,11 +236,25 @@ class PresaleDetailViewModel(
             _isLoading.value = true
             var currentRevision = initialRevision
             var success = true
+            var appliedChanges = 0
 
-            // 1. Process updates and additions from draft lines
+            // Send only modified lines. New lines need their ADMIN price explicitly:
+            // comparing a new price to itself used to silently discard the override.
+            val originalById = originalProducts.associateBy { it.productId }
             for (line in draftLines) {
-                val origPrice = originalPrices[line.productId] ?: line.unitPrice
-                val priceToSend = if (isAdmin && line.unitPrice != origPrice && line.unitPrice > 0.0) line.unitPrice else null
+                val original = originalById[line.productId]
+                if (line.productId.isBlank() || line.ordered <= 0 ||
+                    !line.unitPrice.isFinite() || line.unitPrice <= 0.0 ||
+                    java.math.BigDecimal.valueOf(line.unitPrice).scale() > 2) {
+                    _errorMessage.value = "Cantidad o precio inválido: ${line.name}"
+                    success = false
+                    break
+                }
+                val originalPrice = originalPrices[line.productId]
+                val priceChanged = originalPrice != null && line.unitPrice != originalPrice
+                val quantityChanged = original == null || line.ordered != (original.ordered ?: 0)
+                if (!quantityChanged && !priceChanged) continue
+                val priceToSend = if (isAdmin && (original == null || priceChanged)) line.unitPrice else null
 
                 val req = UpdateDeliveryQuantityRequestDto(
                     productId = line.productId,
@@ -247,6 +269,7 @@ class PresaleDetailViewModel(
                         currentRevision = deliveryDto.revision
                     }
                     _delivery.value = deliveryDto
+                    appliedChanges++
                 } else {
                     val err = result.exceptionOrNull()
                     _errorMessage.value = err?.message ?: "Error al actualizar producto ${line.name}"
@@ -279,6 +302,7 @@ class PresaleDetailViewModel(
                                 currentRevision = deliveryDto.revision
                             }
                             _delivery.value = deliveryDto
+                            appliedChanges++
                         } else {
                             val err = result.exceptionOrNull()
                             _errorMessage.value = err?.message ?: "Error al retirar producto"
@@ -290,6 +314,12 @@ class PresaleDetailViewModel(
                 }
             }
 
+            if (!success && appliedChanges > 0) {
+                _errorMessage.value = "Se aplicaron $appliedChanges modificaciones antes de un error. " +
+                    "Actualiza el pedido y verifica los cambios antes de reintentar."
+                loadSale()
+                loadDelivery()
+            }
             if (success) {
                 _successMessage.value = "Pedido actualizado correctamente"
                 loadSale()

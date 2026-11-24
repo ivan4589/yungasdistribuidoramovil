@@ -88,11 +88,11 @@ class ProductRepositoryImpl(
 
     override suspend fun getProductById(id: String): Result<Product?> {
         return try {
-            val entity = productDao.getProductById(id)
-            if (entity != null) {
-                val category = categoryDao.getCategoryById(entity.categoryId)
-                val subCategory = entity.subCategoryId?.let { subCategoryDao.getSubCategoryById(it) }
-                Result.success(entity.toDomain(category?.name, subCategory?.name))
+            val local = productDao.getProductById(id)
+            if (local != null) {
+                val category = categoryDao.getCategoryById(local.categoryId)
+                val subCategory = local.subCategoryId?.let { subCategoryDao.getSubCategoryById(it) }
+                Result.success(local.toDomain(category?.name, subCategory?.name))
             } else {
                 val response = productApi.getProductById(id)
                 if (response.isSuccessful && response.body() != null) {
@@ -105,14 +105,8 @@ class ProductRepositoryImpl(
                 }
             }
         } catch (e: Exception) {
-            val local = productDao.getProductById(id)
-            if (local != null) {
-                val category = categoryDao.getCategoryById(local.categoryId)
-                val subCategory = local.subCategoryId?.let { subCategoryDao.getSubCategoryById(it) }
-                Result.success(local.toDomain(category?.name, subCategory?.name))
-            } else {
-                Result.failure(Exception(ErrorMapper.mapException(e)))
-            }
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            Result.failure(Exception("Error al recuperar producto: ${ErrorMapper.mapException(e)}", e))
         }
     }
 

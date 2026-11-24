@@ -128,13 +128,14 @@ class MyPresalesViewModelFactory(
 class PresaleDetailViewModelFactory(
     private val salesRepository: SalesRepository,
     private val productRepository: ProductRepository?,
+    private val clientRepository: ClientRepository,
     private val saleId: String,
     private val isAdmin: Boolean
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(PresaleDetailViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return PresaleDetailViewModel(salesRepository, productRepository, saleId, isAdmin) as T
+            return PresaleDetailViewModel(salesRepository, productRepository, clientRepository, saleId, isAdmin) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

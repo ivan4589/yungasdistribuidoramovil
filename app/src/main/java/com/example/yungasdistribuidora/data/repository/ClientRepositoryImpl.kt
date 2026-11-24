@@ -55,28 +55,32 @@ class ClientRepositoryImpl(
     }
 
     override suspend fun getClientById(id: String): Result<Client> {
-        return try {
-            // First check local or fetch remote
-            val response = clientApi.getClientById(id)
-            if (response.isSuccessful && response.body() != null) {
+        val response = try {
+            clientApi.getClientById(id)
+        } catch (networkError: Exception) {
+            return try {
+                val cached = clientDao.getClientById(id)
+                if (cached != null) Result.success(cached.toDomain())
+                else Result.failure(Exception(ErrorMapper.mapException(networkError)))
+            } catch (dbError: Exception) {
+                Result.failure(Exception("Error de Room al leer cliente: ${dbError.message}", dbError))
+            }
+        }
+        if (response.isSuccessful && response.body() != null) {
+            return try {
                 val dto = response.body()!!
                 clientDao.insertClient(dto.toEntity())
                 Result.success(dto.toDomain())
-            } else {
-                val local = clientDao.getClientById(id)
-                if (local != null) {
-                    Result.success(local.toDomain())
-                } else {
-                    Result.failure(Exception(ErrorMapper.mapHttpCode(response.code())))
-                }
+            } catch (dbError: Exception) {
+                Result.failure(Exception("Error al guardar cliente en Room: ${dbError.message}", dbError))
             }
-        } catch (e: Exception) {
-            val local = clientDao.getClientById(id)
-            if (local != null) {
-                Result.success(local.toDomain())
-            } else {
-                Result.failure(Exception(ErrorMapper.mapException(e)))
-            }
+        }
+        return try {
+            val cached = clientDao.getClientById(id)
+            if (cached != null) Result.success(cached.toDomain())
+            else Result.failure(Exception(ErrorMapper.mapHttpCode(response.code())))
+        } catch (dbError: Exception) {
+            Result.failure(Exception("Error de Room al leer cliente: ${dbError.message}", dbError))
         }
     }
 

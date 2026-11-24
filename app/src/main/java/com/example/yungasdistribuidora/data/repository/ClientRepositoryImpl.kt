@@ -56,14 +56,13 @@ class ClientRepositoryImpl(
 
     override suspend fun getClientById(id: String): Result<Client> {
         return try {
-            // First check local or fetch remote
             val response = clientApi.getClientById(id)
             if (response.isSuccessful && response.body() != null) {
                 val dto = response.body()!!
-                clientDao.insertClient(dto.toEntity())
+                try { clientDao.insertClient(dto.toEntity()) } catch (_: Exception) {}
                 Result.success(dto.toDomain())
             } else {
-                val local = clientDao.getClientById(id)
+                val local = try { clientDao.getClientById(id) } catch (_: Exception) { null }
                 if (local != null) {
                     Result.success(local.toDomain())
                 } else {
@@ -71,7 +70,7 @@ class ClientRepositoryImpl(
                 }
             }
         } catch (e: Exception) {
-            val local = clientDao.getClientById(id)
+            val local = try { clientDao.getClientById(id) } catch (_: Exception) { null }
             if (local != null) {
                 Result.success(local.toDomain())
             } else {

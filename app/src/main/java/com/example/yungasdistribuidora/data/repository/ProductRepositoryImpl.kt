@@ -88,27 +88,27 @@ class ProductRepositoryImpl(
 
     override suspend fun getProductById(id: String): Result<Product?> {
         return try {
-            val entity = productDao.getProductById(id)
+            val entity = try { productDao.getProductById(id) } catch (_: Exception) { null }
             if (entity != null) {
-                val category = categoryDao.getCategoryById(entity.categoryId)
-                val subCategory = entity.subCategoryId?.let { subCategoryDao.getSubCategoryById(it) }
+                val category = try { categoryDao.getCategoryById(entity.categoryId) } catch (_: Exception) { null }
+                val subCategory = entity.subCategoryId?.let { try { subCategoryDao.getSubCategoryById(it) } catch (_: Exception) { null } }
                 Result.success(entity.toDomain(category?.name, subCategory?.name))
             } else {
                 val response = productApi.getProductById(id)
                 if (response.isSuccessful && response.body() != null) {
                     val dto = response.body()!!
-                    val category = categoryDao.getCategoryById(dto.categoryId)
-                    val subCategory = dto.subCategoryId?.let { subCategoryDao.getSubCategoryById(it) }
+                    val category = try { categoryDao.getCategoryById(dto.categoryId) } catch (_: Exception) { null }
+                    val subCategory = dto.subCategoryId?.let { try { subCategoryDao.getSubCategoryById(it) } catch (_: Exception) { null } }
                     Result.success(dto.toDomain(category?.name, subCategory?.name))
                 } else {
                     Result.failure(Exception(ErrorMapper.mapHttpCode(response.code())))
                 }
             }
         } catch (e: Exception) {
-            val local = productDao.getProductById(id)
+            val local = try { productDao.getProductById(id) } catch (_: Exception) { null }
             if (local != null) {
-                val category = categoryDao.getCategoryById(local.categoryId)
-                val subCategory = local.subCategoryId?.let { subCategoryDao.getSubCategoryById(it) }
+                val category = try { categoryDao.getCategoryById(local.categoryId) } catch (_: Exception) { null }
+                val subCategory = local.subCategoryId?.let { try { subCategoryDao.getSubCategoryById(it) } catch (_: Exception) { null } }
                 Result.success(local.toDomain(category?.name, subCategory?.name))
             } else {
                 Result.failure(Exception(ErrorMapper.mapException(e)))

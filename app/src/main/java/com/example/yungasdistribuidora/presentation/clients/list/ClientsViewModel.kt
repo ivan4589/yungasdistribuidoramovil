@@ -50,6 +50,9 @@ class ClientsViewModel(
     }.flatMapLatest { (inactive, locId, type) ->
         val effectiveInactive = if (isAdmin) inactive else false
         clientRepository.getClients(effectiveInactive, locId, type)
+    }.catch { e ->
+        _errorMessage.value = e.message ?: "Error al cargar datos locales de clientes"
+        emit(emptyList())
     }
 
     val clients: StateFlow<List<Client>> = combine(

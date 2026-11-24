@@ -99,23 +99,23 @@ class SalesRepositoryImpl(
                 val entity = SaleMapper.toEntity(dto)
                 val details = SaleMapper.toDetailEntities(dto.id, dto.details)
                 val bonuses = SaleMapper.toBonusEntities(dto.id, dto.bonuses)
-                saleDao.saveCompleteSale(entity, details, bonuses)
+                try { saleDao.saveCompleteSale(entity, details, bonuses) } catch (_: Exception) {}
                 Result.success(dto)
             } else {
-                val localEntity = saleDao.getSaleById(id)
+                val localEntity = try { saleDao.getSaleById(id) } catch (_: Exception) { null }
                 if (localEntity != null) {
-                    val details = saleDao.getSaleDetails(id)
-                    val bonuses = saleDao.getSaleBonuses(id)
+                    val details = try { saleDao.getSaleDetails(id) } catch (_: Exception) { emptyList() }
+                    val bonuses = try { saleDao.getSaleBonuses(id) } catch (_: Exception) { emptyList() }
                     Result.success(SaleMapper.toResponseDto(localEntity, details, bonuses))
                 } else {
                     Result.failure(Exception(extractSafeBackendMessage(response)))
                 }
             }
         } catch (e: Exception) {
-            val localEntity = saleDao.getSaleById(id)
+            val localEntity = try { saleDao.getSaleById(id) } catch (_: Exception) { null }
             if (localEntity != null) {
-                val details = saleDao.getSaleDetails(id)
-                val bonuses = saleDao.getSaleBonuses(id)
+                val details = try { saleDao.getSaleDetails(id) } catch (_: Exception) { emptyList() }
+                val bonuses = try { saleDao.getSaleBonuses(id) } catch (_: Exception) { emptyList() }
                 Result.success(SaleMapper.toResponseDto(localEntity, details, bonuses))
             } else {
                 Result.failure(Exception(ErrorMapper.mapException(e)))

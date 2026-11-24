@@ -80,6 +80,9 @@ class AppDatabaseMigrationTest {
                         assertTrue(it.moveToFirst())
                         assertEquals(5, it.getInt(0))
                     }
+                    db.query("PRAGMA foreign_key_check").use {
+                        assertFalse("Foreign key violation detected after migration", it.moveToFirst())
+                    }
                 }
             }
             // Reopen to check the persisted Room identity after migration.

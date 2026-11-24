@@ -172,6 +172,7 @@ val MIGRATION_4_5 = object : Migration(4, 5) {
 
 val MIGRATION_5_6 = object : Migration(5, 6) {
     override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("PRAGMA foreign_keys=OFF")
         db.execSQL("""
             CREATE TABLE IF NOT EXISTS sales_v6 (
                 id TEXT PRIMARY KEY NOT NULL,
@@ -210,5 +211,6 @@ val MIGRATION_5_6 = object : Migration(5, 6) {
         """)
         db.execSQL("DROP TABLE sales")
         db.execSQL("ALTER TABLE sales_v6 RENAME TO sales")
+        db.execSQL("PRAGMA foreign_keys=ON")
     }
 }

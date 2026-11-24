@@ -18,6 +18,22 @@ interface SaleDao {
         insertBonuses(bonuses)
     }
 
+    /**
+     * Persist a downloaded set atomically. Never delete missing local sales here:
+     * the server response may be paginated or scoped by user permissions.
+     */
+    @Transaction
+    suspend fun saveRemoteBatch(
+        sales: List<SaleEntity>,
+        details: List<List<SaleDetailEntity>>,
+        bonuses: List<List<SaleBonusEntity>>
+    ) {
+        require(sales.size == details.size && sales.size == bonuses.size)
+        sales.forEachIndexed { index, sale ->
+            saveCompleteSale(sale, details[index], bonuses[index])
+        }
+    }
+
     @Query("DELETE FROM sale_details WHERE saleId = :id")
     suspend fun deleteDetails(id: String)
 

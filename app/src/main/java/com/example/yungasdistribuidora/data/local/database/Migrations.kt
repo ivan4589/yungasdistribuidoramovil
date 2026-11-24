@@ -224,3 +224,16 @@ val MIGRATION_5_6 = object : Migration(5, 6) {
         }
     }
 }
+
+/**
+ * Previous development APKs used Room version 6 with different identity hashes.
+ * A version bump causes Room to validate the actual schema and update its identity
+ * without deleting user data. An incompatible physical schema still fails safely.
+ */
+val MIGRATION_6_7 = object : Migration(6, 7) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.query("PRAGMA foreign_key_check").use { cursor ->
+            check(!cursor.moveToFirst()) { "Corrupt foreign keys in local sales database" }
+        }
+    }
+}

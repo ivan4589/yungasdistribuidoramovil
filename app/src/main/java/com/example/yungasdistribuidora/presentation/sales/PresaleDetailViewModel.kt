@@ -19,6 +19,15 @@ import kotlinx.coroutines.withContext
 import java.text.Normalizer
 import java.util.*
 
+data class EditDeliveryLine(
+    val productId: String,
+    val name: String,
+    val ordered: Int,
+    val delivered: Int,
+    val unitPrice: Double,
+    val isNew: Boolean = false
+)
+
 class PresaleDetailViewModel(
     private val salesRepository: SalesRepository,
     private val productRepository: ProductRepository?,
@@ -35,6 +44,9 @@ class PresaleDetailViewModel(
 
     private val _catalogProducts = MutableStateFlow<List<Product>>(emptyList())
     val catalogProducts = _catalogProducts.asStateFlow()
+
+    private val _editDraftLines = MutableStateFlow<List<EditDeliveryLine>>(emptyList())
+    val editDraftLines = _editDraftLines.asStateFlow()
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading = _isLoading.asStateFlow()
@@ -62,8 +74,60 @@ class PresaleDetailViewModel(
         }
     }
 
+    fun initEditDraft(products: List<DeliveryProductDto>, saleDetailsMap: Map<String, Double>) {
+        val lines = products.map { p ->
+            val pId = p.productId ?: ""
+            val price = p.unitPrice ?: saleDetailsMap[pId] ?: 0.0
+            EditDeliveryLine(
+                productId = pId,
+                name = p.name ?: pId,
+                ordered = p.ordered ?: 0,
+                delivered = p.delivered ?: 0,
+                unitPrice = price,
+                isNew = false
+            )
+        }
+        _editDraftLines.value = lines
+    }
+
+    fun updateDraftItem(productId: String, ordered: Int, unitPrice: Double) {
+        val current = _editDraftLines.value.toMutableList()
+        val index = current.indexOfFirst { it.productId == productId }
+        if (index >= 0) {
+            val item = current[index]
+            current[index] = item.copy(ordered = ordered, unitPrice = unitPrice)
+            _editDraftLines.value = current
+        }
+    }
+
+    fun addProductToDraft(product: Product, ordered: Int, unitPrice: Double) {
+        val current = _editDraftLines.value.toMutableList()
+        val index = current.indexOfFirst { it.productId == product.id }
+        if (index >= 0) {
+            val existing = current[index]
+            current[index] = existing.copy(ordered = existing.ordered + ordered, unitPrice = if (isAdmin) unitPrice else existing.unitPrice)
+        } else {
+            current.add(
+                EditDeliveryLine(
+                    productId = product.id,
+                    name = product.name,
+                    ordered = ordered,
+                    delivered = 0,
+                    unitPrice = unitPrice,
+                    isNew = true
+                )
+            )
+        }
+        _editDraftLines.value = current
+    }
+
+    fun removeDraftItem(productId: String) {
+        val current = _editDraftLines.value.toMutableList()
+        current.removeAll { it.productId == productId }
+        _editDraftLines.value = current
+    }
+
     fun calculatePrice(product: Product, quantity: Double): Double {
-        val clientType = _sale.value?.saleType // or client type if available
         return calculateProductPriceUseCase(product, null, quantity)
     }
 
@@ -147,26 +211,32 @@ class PresaleDetailViewModel(
         }
     }
 
-    fun updateDeliveryQuantities(
-        updates: Map<String, Int>,
-        unitPrices: Map<String, Double>,
+    fun saveEditDraft(
+        originalProducts: List<DeliveryProductDto>,
         originalPrices: Map<String, Double>,
         initialRevision: Int,
         onComplete: () -> Unit
     ) {
         if (_isLoading.value) return
+        val draftLines = _editDraftLines.value
+        if (draftLines.isEmpty()) {
+            _errorMessage.value = "El pedido no puede quedarse sin productos."
+            return
+        }
+
         viewModelScope.launch {
             _isLoading.value = true
             var currentRevision = initialRevision
             var success = true
-            for ((productId, qty) in updates) {
-                val newPrice = unitPrices[productId]
-                val origPrice = originalPrices[productId]
-                val priceToSend = if (isAdmin && newPrice != null && newPrice != origPrice && newPrice > 0.0) newPrice else null
+
+            // 1. Process updates and additions from draft lines
+            for (line in draftLines) {
+                val origPrice = originalPrices[line.productId] ?: line.unitPrice
+                val priceToSend = if (isAdmin && line.unitPrice != origPrice && line.unitPrice > 0.0) line.unitPrice else null
 
                 val req = UpdateDeliveryQuantityRequestDto(
-                    productId = productId,
-                    quantity = qty,
+                    productId = line.productId,
+                    quantity = line.ordered,
                     expectedRevision = currentRevision,
                     unitPrice = priceToSend
                 )
@@ -179,7 +249,7 @@ class PresaleDetailViewModel(
                     _delivery.value = deliveryDto
                 } else {
                     val err = result.exceptionOrNull()
-                    _errorMessage.value = err?.message ?: "Error al actualizar producto $productId"
+                    _errorMessage.value = err?.message ?: "Error al actualizar producto ${line.name}"
                     success = false
                     if (err?.message?.contains("409") == true) {
                         loadDelivery()
@@ -189,6 +259,37 @@ class PresaleDetailViewModel(
                 }
                 idempotencyKey = UUID.randomUUID().toString()
             }
+
+            // 2. Process removals (products that were in original delivery but are no longer in draft lines with delivered == 0)
+            if (success) {
+                val draftIds = draftLines.map { it.productId }.toSet()
+                for (orig in originalProducts) {
+                    val pId = orig.productId ?: ""
+                    if (!draftIds.contains(pId) && (orig.delivered ?: 0) == 0) {
+                        val req = UpdateDeliveryQuantityRequestDto(
+                            productId = pId,
+                            quantity = 0,
+                            expectedRevision = currentRevision,
+                            unitPrice = null
+                        )
+                        val result = salesRepository.updateDeliveryQuantity(idempotencyKey, saleId, req)
+                        if (result.isSuccess) {
+                            val deliveryDto = result.getOrNull()
+                            if (deliveryDto?.revision != null) {
+                                currentRevision = deliveryDto.revision
+                            }
+                            _delivery.value = deliveryDto
+                        } else {
+                            val err = result.exceptionOrNull()
+                            _errorMessage.value = err?.message ?: "Error al retirar producto"
+                            success = false
+                            break
+                        }
+                        idempotencyKey = UUID.randomUUID().toString()
+                    }
+                }
+            }
+
             if (success) {
                 _successMessage.value = "Pedido actualizado correctamente"
                 loadSale()

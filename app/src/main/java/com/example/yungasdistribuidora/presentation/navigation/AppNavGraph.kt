@@ -372,7 +372,7 @@ fun AppNavGraph() {
                 arguments = listOf(navArgument("id") { type = NavType.StringType })
             ) { backStackEntry ->
                 val clientId = backStackEntry.arguments?.getString("id") ?: ""
-                val canEdit = currentUserRole == UserRole.ADMIN || currentUserRole == UserRole.VENDEDOR
+                val canEdit = currentUserRole == UserRole.ADMIN
                 val canManageStatus = currentUserRole == UserRole.ADMIN
                 val viewModel: ClientDetailViewModel = viewModel(factory = ClientDetailViewModelFactory(clientRepo, clientId))
                 ClientDetailScreen(
@@ -403,7 +403,7 @@ fun AppNavGraph() {
                 arguments = listOf(navArgument("id") { type = NavType.StringType })
             ) { backStackEntry ->
                 val clientId = backStackEntry.arguments?.getString("id") ?: ""
-                val canEdit = currentUserRole == UserRole.ADMIN || currentUserRole == UserRole.VENDEDOR
+                val canEdit = currentUserRole == UserRole.ADMIN
                 if (!canEdit) {
                     LaunchedEffect(Unit) {
                         navController.popBackStack()

@@ -32,6 +32,7 @@ fun PresaleDetailScreen(
     val sale by viewModel.sale.collectAsState()
     val delivery by viewModel.delivery.collectAsState()
     val editLines by viewModel.editDraftLines.collectAsState()
+    val clientType by viewModel.clientType.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
     val successMessage by viewModel.successMessage.collectAsState()
@@ -356,6 +357,7 @@ fun PresaleDetailScreen(
             val selectedCatalogProd = catalogProducts.firstOrNull { it.id == selectedCatalogProdId }
             var newProdQtyInput by rememberSaveable { mutableStateOf("1") }
             var newProdPriceInput by rememberSaveable { mutableStateOf("") }
+            var manualNewPrice by rememberSaveable { mutableStateOf(false) }
 
             val filteredCatalog = remember(catalogProducts, searchQuery) {
                 if (searchQuery.isBlank()) catalogProducts
@@ -412,23 +414,26 @@ fun PresaleDetailScreen(
                                     )
 
                                     val defaultPrice = viewModel.calculatePrice(sel, (newProdQtyInput.toDoubleOrNull() ?: 1.0))
-                                    if (newProdPriceInput.isBlank()) {
-                                        newProdPriceInput = defaultPrice.toString()
+                                    if (clientType == null) {
+                                        Text("Tipo de cliente no verificado: el precio mostrado es provisional.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.error)
                                     }
-
                                     val qN = newProdQtyInput.toIntOrNull() ?: 1
-                                    val pN = newProdPriceInput.toDoubleOrNull() ?: defaultPrice
+                                    val pN = if (isAdmin && manualNewPrice) {
+                                        newProdPriceInput.toDoubleOrNull() ?: defaultPrice
+                                    } else defaultPrice
                                     val subtotalNew = qN * pN
 
                                     if (isAdmin) {
                                         OutlinedTextField(
-                                            value = newProdPriceInput,
-                                            onValueChange = { newProdPriceInput = it },
+                                            value = if (manualNewPrice) newProdPriceInput else defaultPrice.toString(),
+                                            onValueChange = { manualNewPrice = true; newProdPriceInput = it },
                                             label = { Text("Precio unitario (Bs.) [ADMIN]") },
                                             modifier = Modifier.fillMaxWidth()
                                         )
                                     } else {
-                                        Text("Precio unitario: Bs. $newProdPriceInput", style = MaterialTheme.typography.bodyMedium)
+                                        Text("Precio unitario: Bs. $defaultPrice", style = MaterialTheme.typography.bodyMedium)
                                     }
                                     Text("Subtotal: Bs. ${"%.2f".format(subtotalNew)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                                 }
@@ -455,6 +460,7 @@ fun PresaleDetailScreen(
                                                     selectedCatalogProdId = cp.id
                                                     val defP = viewModel.calculatePrice(cp, 1.0)
                                                     newProdPriceInput = defP.toString()
+                                                    manualNewPrice = false
                                                 },
                                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                                         ) {
@@ -475,12 +481,13 @@ fun PresaleDetailScreen(
                         val qty = newProdQtyInput.toIntOrNull() ?: 1
                         val price = newProdPriceInput.toDoubleOrNull()
                         if (selProd != null && qty > 0) {
-                            val pr = if (isAdmin && price != null && price >= 0.0) price else viewModel.calculatePrice(selProd, qty.toDouble())
+                            val pr = if (isAdmin && manualNewPrice && price != null && price > 0.0 && price.isFinite()) price else viewModel.calculatePrice(selProd, qty.toDouble())
                             viewModel.addProductToDraft(selProd, qty, pr)
                             showAddProductDialog = false
                             selectedCatalogProdId = null
                             newProdQtyInput = "1"
                             newProdPriceInput = ""
+                            manualNewPrice = false
                         }
                     }, enabled = selectedCatalogProd != null) { Text("Agregar al pedido") }
                 },

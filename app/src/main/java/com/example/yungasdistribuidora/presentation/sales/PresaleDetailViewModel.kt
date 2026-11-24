@@ -236,6 +236,7 @@ class PresaleDetailViewModel(
             _isLoading.value = true
             var currentRevision = initialRevision
             var success = true
+            var appliedChanges = 0
 
             // Send only modified lines. New lines need their ADMIN price explicitly:
             // comparing a new price to itself used to silently discard the override.
@@ -243,7 +244,8 @@ class PresaleDetailViewModel(
             for (line in draftLines) {
                 val original = originalById[line.productId]
                 if (line.productId.isBlank() || line.ordered <= 0 ||
-                    !line.unitPrice.isFinite() || line.unitPrice <= 0.0) {
+                    !line.unitPrice.isFinite() || line.unitPrice <= 0.0 ||
+                    java.math.BigDecimal.valueOf(line.unitPrice).scale() > 2) {
                     _errorMessage.value = "Cantidad o precio inválido: ${line.name}"
                     success = false
                     break
@@ -267,6 +269,7 @@ class PresaleDetailViewModel(
                         currentRevision = deliveryDto.revision
                     }
                     _delivery.value = deliveryDto
+                    appliedChanges++
                 } else {
                     val err = result.exceptionOrNull()
                     _errorMessage.value = err?.message ?: "Error al actualizar producto ${line.name}"
@@ -299,6 +302,8 @@ class PresaleDetailViewModel(
                                 currentRevision = deliveryDto.revision
                             }
                             _delivery.value = deliveryDto
+                            appliedChanges++
+                    appliedChanges++
                         } else {
                             val err = result.exceptionOrNull()
                             _errorMessage.value = err?.message ?: "Error al retirar producto"
@@ -310,6 +315,12 @@ class PresaleDetailViewModel(
                 }
             }
 
+            if (!success && appliedChanges > 0) {
+                _errorMessage.value = "Se aplicaron $appliedChanges modificaciones antes de un error. " +
+                    "Actualiza el pedido y verifica los cambios antes de reintentar."
+                loadSale()
+                loadDelivery()
+            }
             if (success) {
                 _successMessage.value = "Pedido actualizado correctamente"
                 loadSale()

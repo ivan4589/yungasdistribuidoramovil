@@ -51,6 +51,10 @@ class MyPresalesViewModel(
     private fun observeSales() {
         salesRepository.getSales()
             .onEach { _sales.value = it }
+            .catch { error ->
+                if (error is kotlinx.coroutines.CancellationException) throw error
+                _errorMessage.value = "No se pudieron leer las ventas locales: ${error.message}"
+            }
             .launchIn(viewModelScope)
     }
 

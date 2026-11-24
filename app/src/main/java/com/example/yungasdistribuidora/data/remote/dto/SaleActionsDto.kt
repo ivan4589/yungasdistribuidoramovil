@@ -1,9 +1,5 @@
 package com.example.yungasdistribuidora.data.remote.dto
 
-data class CancelSaleRequestDto(
-    val reason: String
-)
-
 data class UpdateSaleRequestDto(
     val clientId: String,
     val details: List<SaleDetailRequestDto>,

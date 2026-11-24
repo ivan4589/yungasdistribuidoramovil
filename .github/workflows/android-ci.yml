@@ -20,7 +20,12 @@ jobs:
       - name: Install Android SDK platform
         run: |
           echo "SDK at ${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
-          sdkmanager --install "platforms;android-34" "build-tools;34.0.0"
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager 2>/dev/null | head -n 1)
+          if [[ -z "$SDKMANAGER" ]]; then
+            echo "::error::Android sdkmanager not found in $ANDROID_HOME/cmdline-tools"
+            exit 1
+          fi
+          "$SDKMANAGER" --install "platforms;android-34" "build-tools;34.0.0"
       - name: Build and test (no production API operations)
         run: |
           chmod +x ./gradlew

@@ -2,6 +2,7 @@ package com.example.yungasdistribuidora.data.remote.realtime
 
 import android.util.Log
 import com.example.yungasdistribuidora.data.remote.api.SalesApi
+import com.example.yungasdistribuidora.data.remote.dto.RealtimeAccessDto
 import kotlinx.coroutines.*
 import okhttp3.*
 import org.json.JSONObject
@@ -14,7 +15,6 @@ class SupabaseRealtimeManager(
     companion object {
         private const val TAG = "SupabaseRealtime"
         private const val SUPABASE_WS_URL = "wss://yungasdistribuidora.supabase.co/realtime/v1/websocket"
-        private const val SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
     }
 
     private val client = OkHttpClient.Builder()
@@ -38,13 +38,12 @@ class SupabaseRealtimeManager(
                     if (response.isSuccessful && response.body() != null) {
                         val access = response.body()!!
                         val token = access.resolvedToken ?: ""
-                        val rUrl = access.resolvedUrl
-                        val wsUrl = if (!rUrl.isNullOrBlank() && !rUrl.contains("api.yungasdistribuidora.cc")) {
-                            rUrl
-                        } else {
-                            "$SUPABASE_WS_URL?apikey=$SUPABASE_ANON_KEY&vsn=1.0.0"
+                        val wsUrl = resolveWebSocketUrl(access)
+                        if (wsUrl == null) {
+                            Log.w(TAG, "Realtime access response missing a usable WebSocket URL/API key")
+                            delay(10_000)
+                            continue
                         }
-
                         connectWebSocket(wsUrl, token)
                         
                         val expiresIn = access.expiresInSeconds ?: 300L
@@ -57,6 +56,15 @@ class SupabaseRealtimeManager(
                 delay(10_000)
             }
         }
+    }
+
+    private fun resolveWebSocketUrl(access: RealtimeAccessDto): String? {
+        val suppliedUrl = access.url ?: access.websocketUrl
+        if (!suppliedUrl.isNullOrBlank() && suppliedUrl.startsWith("wss://") &&
+            !suppliedUrl.contains("api.yungasdistribuidora.cc")) return suppliedUrl
+        val apiKey = access.apiKey ?: access.key
+        if (apiKey.isNullOrBlank()) return null
+        return "$SUPABASE_WS_URL?apikey=$apiKey&vsn=1.0.0"
     }
 
     private fun connectWebSocket(url: String, token: String) {
@@ -190,11 +198,11 @@ class SupabaseRealtimeManager(
                     val access = response.body()
                     if (response.isSuccessful && access != null) {
                         val token = access.resolvedToken.orEmpty()
-                        val url = access.resolvedUrl
-                        val wsUrl = if (!url.isNullOrBlank() && !url.contains("api.yungasdistribuidora.cc")) {
-                            url
-                        } else {
-                            "$SUPABASE_WS_URL?apikey=$SUPABASE_ANON_KEY&vsn=1.0.0"
+                        val wsUrl = resolveWebSocketUrl(access)
+                        if (wsUrl == null) {
+                            Log.w(TAG, "Realtime reconnect missing valid server configuration")
+                            delay(10_000)
+                            continue
                         }
                         connectWebSocket(wsUrl, token)
                         scheduleTokenRefresh(((access.expiresInSeconds ?: 300L) - 60L).coerceAtLeast(60L) * 1000L)

@@ -229,10 +229,22 @@ class PresaleDetailViewModel(
             var currentRevision = initialRevision
             var success = true
 
-            // 1. Process updates and additions from draft lines
+            // Send only modified lines. New lines need their ADMIN price explicitly:
+            // comparing a new price to itself used to silently discard the override.
+            val originalById = originalProducts.associateBy { it.productId }
             for (line in draftLines) {
-                val origPrice = originalPrices[line.productId] ?: line.unitPrice
-                val priceToSend = if (isAdmin && line.unitPrice != origPrice && line.unitPrice > 0.0) line.unitPrice else null
+                val original = originalById[line.productId]
+                if (line.productId.isBlank() || line.ordered <= 0 ||
+                    !line.unitPrice.isFinite() || line.unitPrice <= 0.0) {
+                    _errorMessage.value = "Cantidad o precio inválido: ${line.name}"
+                    success = false
+                    break
+                }
+                val originalPrice = originalPrices[line.productId]
+                val priceChanged = originalPrice != null && line.unitPrice != originalPrice
+                val quantityChanged = original == null || line.ordered != (original.ordered ?: 0)
+                if (!quantityChanged && !priceChanged) continue
+                val priceToSend = if (isAdmin && (original == null || priceChanged)) line.unitPrice else null
 
                 val req = UpdateDeliveryQuantityRequestDto(
                     productId = line.productId,

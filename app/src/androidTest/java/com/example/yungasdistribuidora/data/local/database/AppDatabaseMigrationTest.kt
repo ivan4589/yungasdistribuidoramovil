@@ -80,6 +80,10 @@ class AppDatabaseMigrationTest {
                         assertTrue(it.moveToFirst())
                         assertEquals(5, it.getInt(0))
                     }
+                    db.query("SELECT quantity FROM sale_bonuses WHERE id = 'bonus1'").use {
+                        assertTrue("Bonificaciones perdidas durante migración", it.moveToFirst())
+                        assertEquals(2, it.getInt(0))
+                    }
                     db.query("PRAGMA foreign_key_check").use {
                         assertFalse("Foreign key violation detected after migration", it.moveToFirst())
                     }
@@ -136,6 +140,7 @@ class AppDatabaseMigrationTest {
                             'POR_COBRAR', NULL, 55, 0, 55, 0, 55, NULL, NULL, NULL,
                             NULL, '2026-01-01', '2026-01-01')""")
                         db.execSQL("INSERT INTO sale_details VALUES ('d1', 's1', 'p1', 'Product', 5, 11, 1, 55)")
+                        db.execSQL("INSERT INTO sale_bonuses VALUES ('bonus1', 's1', 'p1', 'Product', 2)")
                     }
                     if (version >= 4 && !missingColumn) {
                         MIGRATION_3_4.migrate(db)

@@ -125,7 +125,7 @@ class SalesRepositoryImpl(
 
     override suspend fun updateSale(idempotencyKey: String, id: String, request: UpdateSaleRequestDto): Result<SaleResponseDto> {
         return try {
-            val response = salesApi.updateSale(idempotencyKey, id, request.forUpdate())
+            val response = salesApi.updateSale(idempotencyKey, id, request)
             if (response.isSuccessful && response.body() != null) {
                 val dto = response.body()!!
                 val entity = SaleMapper.toEntity(dto)

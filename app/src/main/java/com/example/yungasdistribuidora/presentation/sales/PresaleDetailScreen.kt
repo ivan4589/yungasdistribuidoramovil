@@ -153,6 +153,8 @@ fun PresaleDetailScreen(
     if (showActiveDeliveryEditDialog) {
         val catalogProducts by viewModel.catalogProducts.collectAsState()
         val currentProducts = delivery?.products ?: emptyList()
+        val s = sale
+        val saleDetailsMap = s?.details?.associate { it.productId to it.unitPrice } ?: emptyMap()
 
         val editableQuantities = remember(currentProducts) {
             mutableStateMapOf<String, String>().apply {
@@ -161,10 +163,11 @@ fun PresaleDetailScreen(
                 }
             }
         }
-        val editableUnitPrices = remember(currentProducts) {
+        val editableUnitPrices = remember(currentProducts, saleDetailsMap) {
             mutableStateMapOf<String, String>().apply {
                 currentProducts.forEach { p ->
-                    put(p.productId ?: "", (p.itemUnitPrice).toString())
+                    val price = p.unitPrice ?: saleDetailsMap[p.productId] ?: 0.0
+                    put(p.productId ?: "", price.toString())
                 }
             }
         }
@@ -181,14 +184,23 @@ fun PresaleDetailScreen(
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("Ajuste cantidades solicitadas o precios (ADMIN). No puede reducir por debajo de lo ya entregado.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                    Text(
+                        if (isAdmin) "Ajuste cantidades solicitadas o precios (ADMIN)." else "Ajuste cantidades solicitadas.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
                     HorizontalDivider()
 
                     currentProducts.forEach { p ->
                         val pId = p.productId ?: ""
                         val delivered = p.delivered ?: 0
                         val currentQtyStr = editableQuantities[pId] ?: (p.ordered ?: 0).toString()
-                        val currentPriceStr = editableUnitPrices[pId] ?: (p.itemUnitPrice).toString()
+                        val agreedPrice = p.unitPrice ?: saleDetailsMap[pId] ?: 0.0
+                        val currentPriceStr = editableUnitPrices[pId] ?: agreedPrice.toString()
+
+                        val qNum = currentQtyStr.toIntOrNull() ?: 0
+                        val pNum = currentPriceStr.toDoubleOrNull() ?: agreedPrice
+                        val subtotalPreview = qNum * pNum
 
                         Card(
                             modifier = Modifier.fillMaxWidth(),
@@ -220,6 +232,7 @@ fun PresaleDetailScreen(
                                         Text("Precio: Bs. $currentPriceStr", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
                                     }
                                 }
+                                Text("Subtotal: Bs. ${"%.2f".format(subtotalPreview)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                             }
                         }
                     }
@@ -260,9 +273,8 @@ fun PresaleDetailScreen(
                     }
                     if (isValid) {
                         val rev = delivery?.revision ?: 0
-                        val saleDetailsMap = sale?.details?.associate { it.productId to it.unitPrice } ?: emptyMap()
-                        val originalPrices = currentProducts.associate { (it.productId ?: "") to (it.unitPrice ?: saleDetailsMap[it.productId] ?: 0.0) }
-                        viewModel.updateDeliveryQuantities(updates, uPrices, originalPrices, rev) {
+                        val origPrices = currentProducts.associate { (it.productId ?: "") to (it.unitPrice ?: saleDetailsMap[it.productId] ?: 0.0) }
+                        viewModel.updateDeliveryQuantities(updates, uPrices, origPrices, rev) {
                             showActiveDeliveryEditDialog = false
                         }
                     }
@@ -338,6 +350,10 @@ fun PresaleDetailScreen(
                                         newProdPriceInput = defaultPrice.toString()
                                     }
 
+                                    val qN = newProdQtyInput.toIntOrNull() ?: 1
+                                    val pN = newProdPriceInput.toDoubleOrNull() ?: defaultPrice
+                                    val subtotalNew = qN * pN
+
                                     if (isAdmin) {
                                         OutlinedTextField(
                                             value = newProdPriceInput,
@@ -348,6 +364,7 @@ fun PresaleDetailScreen(
                                     } else {
                                         Text("Precio unitario: Bs. $newProdPriceInput", style = MaterialTheme.typography.bodyMedium)
                                     }
+                                    Text("Subtotal: Bs. ${"%.2f".format(subtotalNew)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                                 }
                             }
                         } else {
@@ -394,7 +411,9 @@ fun PresaleDetailScreen(
                         if (selProd != null && qty > 0) {
                             val pId = selProd.id
                             editableQuantities[pId] = qty.toString()
-                            if (price != null && price >= 0.0) {
+                            if (isAdmin && price != null && price >= 0.0) {
+                                editableUnitPrices[pId] = price.toString()
+                            } else if (price != null) {
                                 editableUnitPrices[pId] = price.toString()
                             }
                             showAddProductDialog = false
@@ -478,7 +497,11 @@ fun PresaleDetailScreen(
         } else {
             val s = sale!!
             val d = delivery
-            val products = d?.products ?: s.details?.map {
+            val saleDetailsMap = s.details?.associate { it.productId to it.unitPrice } ?: emptyMap()
+
+            val products = d?.products?.map { p ->
+                p.copy(unitPrice = p.unitPrice ?: saleDetailsMap[p.productId])
+            } ?: s.details?.map {
                 DeliveryProductDto(
                     saleDetailId = it.id,
                     productId = it.productId,
@@ -591,6 +614,7 @@ fun PresaleDetailScreen(
                             val ord = prod.ordered ?: 0
                             val del = prod.delivered ?: 0
                             val pen = prod.pending ?: maxOf(0, ord - del)
+                            val agreedPrice = prod.unitPrice ?: saleDetailsMap[prod.productId] ?: 0.0
                             val progress = if (ord > 0) (del.toFloat() / ord.toFloat()).coerceIn(0f, 1f) else 0f
                             val status = when {
                                 del == 0 -> "No entregado"
@@ -624,7 +648,7 @@ fun PresaleDetailScreen(
                                 }
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                     Text("Solicitado: $ord | Entregado: $del | Pendiente: $pen", style = MaterialTheme.typography.bodySmall)
-                                    Text("Bs. ${"%.2f".format(prod.itemUnitPrice)} c/u", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                                    Text("Bs. ${"%.2f".format(agreedPrice)} c/u", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
                                 }
                                 LinearProgressIndicator(
                                     progress = progress,

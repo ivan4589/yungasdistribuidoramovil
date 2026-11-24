@@ -172,7 +172,10 @@ val MIGRATION_4_5 = object : Migration(4, 5) {
 
 val MIGRATION_5_6 = object : Migration(5, 6) {
     override fun migrate(db: SupportSQLiteDatabase) {
-        db.execSQL("PRAGMA foreign_keys=OFF")
+        // Room runs migrations in a transaction; changing PRAGMA foreign_keys is ineffective.
+        // Back up dependents before replacing their parent table.
+        db.execSQL("CREATE TEMP TABLE _sale_details_preserved AS SELECT * FROM sale_details")
+        db.execSQL("CREATE TEMP TABLE _sale_bonuses_preserved AS SELECT * FROM sale_bonuses")
         db.execSQL("""
             CREATE TABLE IF NOT EXISTS sales_v6 (
                 id TEXT PRIMARY KEY NOT NULL,
@@ -211,6 +214,13 @@ val MIGRATION_5_6 = object : Migration(5, 6) {
         """)
         db.execSQL("DROP TABLE sales")
         db.execSQL("ALTER TABLE sales_v6 RENAME TO sales")
-        db.execSQL("PRAGMA foreign_keys=ON")
+        // Restoring the parent alone is insufficient if DROP TABLE cascaded children.
+        db.execSQL("INSERT INTO sale_details SELECT * FROM _sale_details_preserved")
+        db.execSQL("INSERT INTO sale_bonuses SELECT * FROM _sale_bonuses_preserved")
+        db.execSQL("DROP TABLE _sale_details_preserved")
+        db.execSQL("DROP TABLE _sale_bonuses_preserved")
+        db.query("PRAGMA foreign_key_check").use { cursor ->
+            check(!cursor.moveToFirst()) { "Invalid sale foreign keys after migration 5 to 6" }
+        }
     }
 }

@@ -1,6 +1,9 @@
 package com.example.yungasdistribuidora.presentation.sales
 
+ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -14,6 +17,8 @@ import androidx.compose.ui.unit.dp
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import com.example.yungasdistribuidora.data.remote.dto.DeliveryProductDto
+import com.example.yungasdistribuidora.domain.model.Product
+import java.text.Normalizer
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -25,6 +30,7 @@ fun PresaleDetailScreen(
 ) {
     val sale by viewModel.sale.collectAsState()
     val delivery by viewModel.delivery.collectAsState()
+    val editLines by viewModel.editDraftLines.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
     val successMessage by viewModel.successMessage.collectAsState()
@@ -33,6 +39,11 @@ fun PresaleDetailScreen(
     var confirmWhatsApp by remember { mutableStateOf(false) }
     var showDeliveryDialog by remember { mutableStateOf(false) }
     var showReturnDialog by remember { mutableStateOf(false) }
+    var showActiveDeliveryEditDialog by remember { mutableStateOf(false) }
+    var returnProductTarget by remember { mutableStateOf<DeliveryProductDto?>(null) }
+    var returnEventQty by remember { mutableStateOf("") }
+    var validationMessage by remember { mutableStateOf<String?>(null) }
+    
     var modifyingItem by remember { mutableStateOf<DeliveryProductDto?>(null) }
     var newQtyInput by remember { mutableStateOf("") }
     var eventQty by remember { mutableStateOf("") }
@@ -144,6 +155,344 @@ fun PresaleDetailScreen(
         )
     }
 
+    returnProductTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { returnProductTarget = null; returnEventQty = "" },
+            title = { Text("Registrar Devolución: ${target.name ?: target.productId}") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Entregado actual: ${target.delivered}. Indique cuántas unidades se devuelven:")
+                    OutlinedTextField(
+                        value = returnEventQty,
+                        onValueChange = { returnEventQty = it },
+                        label = { Text("Cantidad devuelta") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    val qty = returnEventQty.toIntOrNull() ?: 0
+                    val rev = delivery?.revision ?: 0
+                    if (qty > 0 && qty <= (target.delivered ?: 0)) {
+                        viewModel.recordDeliveryEvent(target.productId ?: "", "RETURN", qty, rev)
+                        returnProductTarget = null
+                        returnEventQty = ""
+                    }
+                }) { Text("Confirmar Devolución") }
+            },
+            dismissButton = {
+                TextButton(onClick = { returnProductTarget = null; returnEventQty = "" }) { Text("Cancelar") }
+            }
+        )
+    }
+
+    validationMessage?.let { msg ->
+        AlertDialog(
+            onDismissRequest = { validationMessage = null },
+            title = { Text("Aviso de Validación") },
+            text = { Text(msg) },
+            confirmButton = { Button(onClick = { validationMessage = null }) { Text("Aceptar") } }
+        )
+    }
+
+    if (showActiveDeliveryEditDialog) {
+        val catalogProducts by viewModel.catalogProducts.collectAsState()
+        val currentProducts = delivery?.products ?: emptyList()
+        val s = sale
+        val saleDetailsMap = s?.details?.associate { it.productId to it.unitPrice } ?: emptyMap()
+
+        LaunchedEffect(showActiveDeliveryEditDialog) {
+            if (editLines.isEmpty()) {
+                viewModel.initEditDraft(currentProducts, saleDetailsMap)
+            }
+        }
+
+        var showAddProductDialog by remember { mutableStateOf(false) }
+
+        AlertDialog(
+            onDismissRequest = { showActiveDeliveryEditDialog = false },
+            title = { Text("Editar pedido con reparto activo") },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 500.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        if (isAdmin) "Ajuste cantidades solicitadas o precios (ADMIN)." else "Ajuste cantidades solicitadas.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                    HorizontalDivider()
+
+                    editLines.forEach { line ->
+                        val pId = line.productId
+                        val delivered = line.delivered
+                        val currentQtyStr = line.ordered.toString()
+                        val currentPriceStr = line.unitPrice.toString()
+                        val subtotalPreview = line.ordered * line.unitPrice
+
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                        ) {
+                            Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(line.name, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                                    IconButton(onClick = {
+                                        if (delivered > 0) {
+                                            validationMessage = "Este producto tiene unidades entregadas. Primero debe registrar la devolución correspondiente."
+                                        } else if (editLines.size <= 1) {
+                                            validationMessage = "El pedido debe tener al menos un producto."
+                                        } else {
+                                            viewModel.removeDraftItem(pId)
+                                        }
+                                    }) {
+                                        Icon(Icons.Default.Delete, contentDescription = "Quitar producto", tint = MaterialTheme.colorScheme.error)
+                                    }
+                                }
+
+                                Text("Entregado: $delivered | Pendiente: ${maxOf(0, line.ordered - delivered)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    OutlinedTextField(
+                                        value = currentQtyStr,
+                                        onValueChange = { newVal ->
+                                            val q = newVal.toIntOrNull() ?: 0
+                                            viewModel.updateDraftItem(pId, q, line.unitPrice)
+                                        },
+                                        label = { Text("Cant.") },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    if (isAdmin) {
+                                        OutlinedTextField(
+                                            value = currentPriceStr,
+                                            onValueChange = { newVal ->
+                                                val pr = newVal.toDoubleOrNull() ?: line.unitPrice
+                                                viewModel.updateDraftItem(pId, line.ordered, pr)
+                                            },
+                                            label = { Text("Precio (Bs.)") },
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    } else {
+                                        Text("Precio: Bs. $currentPriceStr", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                                    }
+                                }
+
+                                if (delivered > 0) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            val targetDto = currentProducts.find { it.productId == pId } ?: DeliveryProductDto(null, pId, line.name, line.ordered, delivered, line.ordered - delivered, line.unitPrice)
+                                            returnProductTarget = targetDto
+                                        },
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Registrar devolución")
+                                    }
+                                }
+
+                                Text("Subtotal: Bs. ${"%.2f".format(subtotalPreview)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                    }
+
+                    HorizontalDivider()
+                    Button(onClick = { showAddProductDialog = true }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Default.Add, contentDescription = null)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Agregar nuevo producto")
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    var isValid = true
+                    val updates = mutableMapOf<String, Int>()
+                    val uPrices = mutableMapOf<String, Double>()
+                    for (line in editLines) {
+                        val delivered = currentProducts.find { it.productId == line.productId }?.delivered ?: 0
+                        if (line.ordered < delivered) {
+                            isValid = false
+                            break
+                        }
+                        updates[line.productId] = line.ordered
+                        uPrices[line.productId] = line.unitPrice
+                    }
+                    if (!isValid) {
+                        validationMessage = "No se puede reducir la cantidad solicitada por debajo de las unidades ya entregadas."
+                        return@Button
+                    }
+                    val rev = delivery?.revision ?: 0
+                    val origPrices = currentProducts.associate { (it.productId ?: "") to (it.unitPrice ?: saleDetailsMap[it.productId] ?: 0.0) }
+                    viewModel.saveEditDraft(currentProducts, origPrices, rev) {
+                        showActiveDeliveryEditDialog = false
+                    }
+                }) { Text("Guardar cambios") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showActiveDeliveryEditDialog = false }) { Text("Cancelar") }
+            }
+        )
+
+        if (showAddProductDialog) {
+            var searchQuery by remember { mutableStateOf("") }
+            var selectedCatalogProd by remember { mutableStateOf<Product?>(null) }
+            var newProdQtyInput by remember { mutableStateOf("1") }
+            var newProdPriceInput by remember { mutableStateOf("") }
+
+            val filteredCatalog = remember(catalogProducts, searchQuery) {
+                if (searchQuery.isBlank()) catalogProducts
+                else {
+                    val q = searchQuery.trim().lowercase().let {
+                        val norm = Normalizer.normalize(it, Normalizer.Form.NFD)
+                        Regex("\\p{InCombiningDiacriticalMarks}+").replace(norm, "")
+                    }
+                    catalogProducts.filter { cp ->
+                        val codeNorm = cp.code.lowercase()
+                        val nameNorm = cp.name.lowercase().let {
+                            val norm = Normalizer.normalize(it, Normalizer.Form.NFD)
+                            Regex("\\p{InCombiningDiacriticalMarks}+").replace(norm, "")
+                        }
+                        codeNorm.contains(q) || nameNorm.contains(q)
+                    }
+                }
+            }
+
+            AlertDialog(
+                onDismissRequest = { showAddProductDialog = false },
+                title = { Text("Buscar y agregar producto") },
+                text = {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 450.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            label = { Text("Buscar por código o nombre...") },
+                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+
+                        val sel = selectedCatalogProd
+                        if (sel != null) {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                            ) {
+                                Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text("Seleccionado: ${sel.name}", style = MaterialTheme.typography.titleSmall)
+                                    Text("Código: ${sel.code} | Stock disp.: ${sel.availableStock.toInt()} ${sel.unit}", style = MaterialTheme.typography.bodySmall)
+
+                                    OutlinedTextField(
+                                        value = newProdQtyInput,
+                                        onValueChange = { newProdQtyInput = it },
+                                        label = { Text("Cantidad solicitada") },
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+
+                                    val defaultPrice = viewModel.calculatePrice(sel, (newProdQtyInput.toDoubleOrNull() ?: 1.0))
+                                    if (newProdPriceInput.isBlank()) {
+                                        newProdPriceInput = defaultPrice.toString()
+                                    }
+
+                                    val qN = newProdQtyInput.toIntOrNull() ?: 1
+                                    val pN = newProdPriceInput.toDoubleOrNull() ?: defaultPrice
+                                    val subtotalNew = qN * pN
+
+                                    if (isAdmin) {
+                                        OutlinedTextField(
+                                            value = newProdPriceInput,
+                                            onValueChange = { newProdPriceInput = it },
+                                            label = { Text("Precio unitario (Bs.) [ADMIN]") },
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                    } else {
+                                        Text("Precio unitario: Bs. $newProdPriceInput", style = MaterialTheme.typography.bodyMedium)
+                                    }
+                                    Text("Subtotal: Bs. ${"%.2f".format(subtotalNew)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(250.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                if (filteredCatalog.isEmpty()) {
+                                    item {
+                                        Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+                                            Text("No se encontraron productos", color = MaterialTheme.colorScheme.outline)
+                                        }
+                                    }
+                                } else {
+                                    items(filteredCatalog, key = { it.id }) { cp ->
+                                        Card(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable {
+                                                    selectedCatalogProd = cp
+                                                    val defP = viewModel.calculatePrice(cp, 1.0)
+                                                    newProdPriceInput = defP.toString()
+                                                },
+                                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                                        ) {
+                                            Column(modifier = Modifier.padding(8.dp)) {
+                                                Text("[${cp.code}] ${cp.name}", style = MaterialTheme.typography.bodyMedium)
+                                                Text("Precio: Bs. ${cp.priceNormal} | Stock: ${cp.availableStock.toInt()} ${cp.unit}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(onClick = {
+                        val selProd = selectedCatalogProd
+                        val qty = newProdQtyInput.toIntOrNull() ?: 1
+                        val price = newProdPriceInput.toDoubleOrNull()
+                        if (selProd != null && qty > 0) {
+                            val pr = if (isAdmin && price != null && price >= 0.0) price else viewModel.calculatePrice(selProd, qty.toDouble())
+                            viewModel.addProductToDraft(selProd, qty, pr)
+                            showAddProductDialog = false
+                            selectedCatalogProd = null
+                            newProdQtyInput = "1"
+                            newProdPriceInput = ""
+                        }
+                    }, enabled = selectedCatalogProd != null) { Text("Agregar al pedido") }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        if (selectedCatalogProd != null) {
+                            selectedCatalogProd = null
+                        } else {
+                            showAddProductDialog = false
+                        }
+                    }) { Text(if (selectedCatalogProd != null) "Volver" else "Cancelar") }
+                }
+            )
+        }
+    }
+
     modifyingItem?.let { item ->
         AlertDialog(
             onDismissRequest = { modifyingItem = null; newQtyInput = "" },
@@ -208,14 +557,19 @@ fun PresaleDetailScreen(
         } else {
             val s = sale!!
             val d = delivery
-            val products = d?.products ?: s.details?.map {
+            val saleDetailsMap = s.details?.associate { it.productId to it.unitPrice } ?: emptyMap()
+
+            val products = d?.products?.map { p ->
+                p.copy(unitPrice = p.unitPrice ?: saleDetailsMap[p.productId])
+            } ?: s.details?.map {
                 DeliveryProductDto(
                     saleDetailId = it.id,
                     productId = it.productId,
                     name = it.productName,
                     ordered = it.quantity,
                     delivered = 0,
-                    pending = it.quantity
+                    pending = it.quantity,
+                    unitPrice = it.unitPrice
                 )
             } ?: emptyList()
 
@@ -260,7 +614,7 @@ fun PresaleDetailScreen(
                         Text("Cliente: ${s.clientName ?: s.clientId}", style = MaterialTheme.typography.bodyLarge)
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text("Tipo: ${s.saleType}", style = MaterialTheme.typography.bodyMedium)
-                            Text("Pago: ${s.paymentStatus}", style = MaterialTheme.typography.bodyMedium)
+                            Text("Pago: ${s.paymentStatus ?: "--"}", style = MaterialTheme.typography.bodyMedium)
                         }
                     }
                 }
@@ -280,12 +634,15 @@ fun PresaleDetailScreen(
                     }
                 }
 
-                if (d == null && s.status != "CANCELLED" && s.status != "CONFIRMED") {
+                val deliveryNotStarted = d == null || d?.deliveryMode != true
+
+                if (deliveryNotStarted && s.status != "CANCELLED" && s.status != "CONFIRMED") {
                     Button(
                         onClick = { viewModel.startDelivery() },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                     ) {
-                        Icon(Icons.Default.Info, contentDescription = null)
+                        Icon(Icons.Default.PlayArrow, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Iniciar Entrega / Control de Ruta")
                     }
@@ -300,14 +657,12 @@ fun PresaleDetailScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text("Productos y Entregas", style = MaterialTheme.typography.titleMedium)
-                            if (d != null && s.status != "CONFIRMED") {
+                            if (!deliveryNotStarted && s.status != "CONFIRMED") {
                                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                     TextButton(onClick = { showDeliveryDialog = true }) {
                                         Text("Entrega")
                                     }
-                                    TextButton(onClick = { showReturnDialog = true }) {
-                                        Text("Devolución")
-                                    }
+                                    // General Devolución button removed from main screen
                                 }
                             }
                         }
@@ -317,6 +672,7 @@ fun PresaleDetailScreen(
                             val ord = prod.ordered ?: 0
                             val del = prod.delivered ?: 0
                             val pen = prod.pending ?: maxOf(0, ord - del)
+                            val agreedPrice = prod.unitPrice ?: saleDetailsMap[prod.productId] ?: 0.0
                             val progress = if (ord > 0) (del.toFloat() / ord.toFloat()).coerceIn(0f, 1f) else 0f
                             val status = when {
                                 del == 0 -> "No entregado"
@@ -350,6 +706,7 @@ fun PresaleDetailScreen(
                                 }
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                     Text("Solicitado: $ord | Entregado: $del | Pendiente: $pen", style = MaterialTheme.typography.bodySmall)
+                                    Text("Bs. ${"%.2f".format(agreedPrice)} c/u", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
                                 }
                                 LinearProgressIndicator(
                                     progress = progress,
@@ -394,8 +751,15 @@ fun PresaleDetailScreen(
 
                 // Edit order button (if PENDING)
                 if (s.status == "PENDING") {
+                    val deliveryActive = d?.deliveryMode == true
                     Button(
-                        onClick = onEdit,
+                        onClick = {
+                            if (!deliveryActive) {
+                                onEdit()
+                            } else {
+                                showActiveDeliveryEditDialog = true
+                            }
+                        },
                         modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
                     ) {

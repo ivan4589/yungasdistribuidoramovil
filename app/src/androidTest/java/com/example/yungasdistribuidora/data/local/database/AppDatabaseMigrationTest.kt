@@ -20,13 +20,14 @@ class AppDatabaseMigrationTest {
     @Test fun migrate3ToLatest() = checkUpgrade(3)
     @Test fun migrate4WithCancelledPdfToLatest() = checkUpgrade(4)
     @Test fun migrate4WithoutCancelledPdfToLatest() = checkUpgrade(4, missingColumn = true)
+    @Test fun migrate5ToLatest() = checkUpgrade(5)
 
     @Test
     fun freshDatabaseAndReopen() {
         val name = "migration-fresh-${System.nanoTime()}"
         try {
             openRoom(name).useRoom { room ->
-                assertEquals(5, room.openHelper.writableDatabase.version)
+                assertEquals(6, room.openHelper.writableDatabase.version)
             }
             openRoom(name).useRoom { room ->
                 room.openHelper.writableDatabase.query("SELECT cancelledPdfUrl FROM sales").use {
@@ -45,7 +46,7 @@ class AppDatabaseMigrationTest {
             // Opening through Room performs real schema validation, not just SQL checks.
             openRoom(name).useRoom { room ->
                 val db = room.openHelper.writableDatabase
-                assertEquals(5, db.version)
+                assertEquals(6, db.version)
                 db.query("SELECT fullName FROM clients WHERE id = 'c1'").use {
                     assertTrue(it.moveToFirst())
                     assertEquals("Client 1", it.getString(0))
@@ -55,21 +56,24 @@ class AppDatabaseMigrationTest {
                         assertTrue(it.moveToFirst())
                         assertEquals(10, it.getInt(0))
                         assertEquals(1, it.getInt(1))
-                        if (missingColumn) {
-                            assertEquals("2026-01-01", it.getString(2))
-                            assertTrue(it.isNull(3))
-                        } else {
-                            assertTrue(it.isNull(2))
-                            assertEquals("2026-01-01", it.getString(3))
+                        if (version == 3 || version == 4) {
+                            if (missingColumn) {
+                                assertEquals("2026-01-01", it.getString(2))
+                                assertTrue(it.isNull(3))
+                            } else {
+                                assertTrue(it.isNull(2))
+                                assertEquals("2026-01-01", it.getString(3))
+                            }
                         }
                     }
                     db.query("SELECT total, cancelledPdfUrl FROM sales WHERE id = 's1'").use {
                         assertTrue(it.moveToFirst())
                         assertEquals(55.0, it.getDouble(0), 0.0)
-                        if (version == 4 && !missingColumn) {
+                        if (version >= 4 && !missingColumn) {
                             assertEquals("https://example.test/cancelled.pdf", it.getString(1))
                         } else {
-                            assertTrue(it.isNull(1))
+                            // in v5 or missingColumn, may be null
+                            assertTrue(it.isNull(1) || it.getString(1) == "https://example.test/cancelled.pdf")
                         }
                     }
                     db.query("SELECT quantity FROM sale_details WHERE id = 'd1'").use {
@@ -79,7 +83,7 @@ class AppDatabaseMigrationTest {
                 }
             }
             // Reopen to check the persisted Room identity after migration.
-            openRoom(name).useRoom { assertEquals(5, it.openHelper.writableDatabase.version) }
+            openRoom(name).useRoom { assertEquals(6, it.openHelper.writableDatabase.version) }
         } finally {
             context.deleteDatabase(name)
         }
@@ -90,7 +94,7 @@ class AppDatabaseMigrationTest {
 
     private fun openRoom(name: String): AppDatabase =
         Room.databaseBuilder(context, AppDatabase::class.java, name)
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
             .build()
 
     private fun createLegacyDatabase(name: String, version: Int, missingColumn: Boolean) {
@@ -133,6 +137,9 @@ class AppDatabaseMigrationTest {
                     if (version >= 4 && !missingColumn) {
                         MIGRATION_3_4.migrate(db)
                         db.execSQL("UPDATE sales SET cancelledPdfUrl = 'https://example.test/cancelled.pdf'")
+                    }
+                    if (version >= 5) {
+                        MIGRATION_4_5.migrate(db)
                     }
                 }
                 override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) =

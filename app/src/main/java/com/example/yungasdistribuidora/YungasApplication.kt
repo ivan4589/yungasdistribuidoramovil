@@ -116,10 +116,17 @@ class YungasApplication : Application() {
             .addConverterFactory(GsonConverterFactory.create())
             .build()
 
-        authApi = retrofit.create(AuthApi::class.java)
-        authRepository = AuthRepositoryImpl(authApi, cookieJar, offlineSessionManager)
-
         database = AppDatabase.getInstance(this)
+        authApi = retrofit.create(AuthApi::class.java)
+        authRepository = AuthRepositoryImpl(authApi, cookieJar, offlineSessionManager) {
+            applicationScope.launch {
+                try {
+                    database.saleDao().clearSales()
+                } catch (e: Exception) {
+                    // Ignore
+                }
+            }
+        }
         clientApi = retrofit.create(ClientApi::class.java)
         locationApi = retrofit.create(LocationApi::class.java)
         clientRepository = ClientRepositoryImpl(
@@ -144,7 +151,7 @@ class YungasApplication : Application() {
         bonusRuleRepository = BonusRuleRepositoryImpl(bonusRulesApi, database.bonusRuleDao())
 
         salesApi = retrofit.create(SalesApi::class.java)
-        salesRepository = SalesRepositoryImpl(salesApi, database.saleDao())
+        salesRepository = SalesRepositoryImpl(salesApi, clientApi, database.saleDao())
         presaleRepository = salesRepository
 
         realtimeManager = SupabaseRealtimeManager(salesApi) {
@@ -152,7 +159,6 @@ class YungasApplication : Application() {
                 salesRepository.refreshSales()
             }
         }
-        realtimeManager.start()
 
         appLockManager = AppLockManager(authRepository, offlineSessionManager)
         biometricAuthManager = BiometricAuthManagerImpl(this)

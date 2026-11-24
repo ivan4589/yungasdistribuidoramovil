@@ -6,7 +6,7 @@ data class DeliveryResponseDto(
     @SerializedName("saleId") val saleId: String?,
     @SerializedName("saleNumber") val saleNumber: String?,
     @SerializedName("saleStatus") val saleStatus: String?,
-    @SerializedName("deliveryMode") val deliveryMode: String?,
+    @SerializedName("deliveryMode") val deliveryMode: Boolean?,
     @SerializedName("revision") val revision: Int?,
     @SerializedName("complete") val complete: Boolean?,
     @SerializedName("products") val products: List<DeliveryProductDto>?,
@@ -19,11 +19,13 @@ data class DeliveryProductDto(
     @SerializedName("name") val name: String?,
     @SerializedName("ordered") val ordered: Int?,
     @SerializedName("delivered") val delivered: Int?,
-    @SerializedName("pending") val pending: Int?
+    @SerializedName("pending") val pending: Int?,
+    @SerializedName("unitPrice") val unitPrice: Double?
 ) {
     val quantityOrdered: Int get() = ordered ?: 0
     val quantityDelivered: Int get() = delivered ?: 0
     val quantityPending: Int get() = pending ?: maxOf(0, quantityOrdered - quantityDelivered)
+    val itemUnitPrice: Double get() = unitPrice ?: 0.0
 }
 
 data class DeliveryEventDto(
@@ -45,7 +47,8 @@ data class DeliveryEventRequestDto(
 data class UpdateDeliveryQuantityRequestDto(
     @SerializedName("productId") val productId: String,
     @SerializedName("quantity") val quantity: Int,
-    @SerializedName("expectedRevision") val expectedRevision: Int
+    @SerializedName("expectedRevision") val expectedRevision: Int,
+    @SerializedName("unitPrice") val unitPrice: Double? = null
 )
 
 data class RealtimeAccessDto(

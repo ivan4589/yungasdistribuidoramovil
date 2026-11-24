@@ -26,7 +26,8 @@ interface AuthRepository {
 class AuthRepositoryImpl(
     private val authApi: AuthApi,
     private val cookieJar: SecurePersistentCookieJar,
-    private val offlineSessionManager: OfflineSessionManager
+    private val offlineSessionManager: OfflineSessionManager,
+    private val onClear: (() -> Unit)? = null
 ) : AuthRepository {
 
     override var accessToken: String? = null
@@ -174,5 +175,6 @@ class AuthRepositoryImpl(
         accessToken = null
         cookieJar.clear()
         offlineSessionManager.clear()
+        onClear?.invoke()
     }
 }

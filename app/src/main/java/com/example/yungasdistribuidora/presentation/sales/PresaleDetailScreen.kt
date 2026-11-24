@@ -260,7 +260,9 @@ fun PresaleDetailScreen(
                     }
                     if (isValid) {
                         val rev = delivery?.revision ?: 0
-                        viewModel.updateDeliveryQuantities(updates, uPrices, rev) {
+                        val saleDetailsMap = sale?.details?.associate { it.productId to it.unitPrice } ?: emptyMap()
+                        val originalPrices = currentProducts.associate { (it.productId ?: "") to (it.unitPrice ?: saleDetailsMap[it.productId] ?: 0.0) }
+                        viewModel.updateDeliveryQuantities(updates, uPrices, originalPrices, rev) {
                             showActiveDeliveryEditDialog = false
                         }
                     }

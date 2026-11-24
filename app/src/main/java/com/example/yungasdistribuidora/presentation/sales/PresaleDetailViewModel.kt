@@ -63,7 +63,7 @@ class PresaleDetailViewModel(
     }
 
     fun calculatePrice(product: Product, quantity: Double): Double {
-        // Can be refined with client type if available from sale
+        val clientType = _sale.value?.saleType // or client type if available
         return calculateProductPriceUseCase(product, null, quantity)
     }
 
@@ -129,7 +129,8 @@ class PresaleDetailViewModel(
         if (_isLoading.value) return
         viewModelScope.launch {
             _isLoading.value = true
-            val req = UpdateDeliveryQuantityRequestDto(productId = productId, quantity = quantity, expectedRevision = expectedRevision, unitPrice = unitPrice)
+            val priceToSend = if (isAdmin && unitPrice != null && unitPrice > 0.0) unitPrice else null
+            val req = UpdateDeliveryQuantityRequestDto(productId = productId, quantity = quantity, expectedRevision = expectedRevision, unitPrice = priceToSend)
             salesRepository.updateDeliveryQuantity(idempotencyKey, saleId, req).onSuccess {
                 _delivery.value = it
                 _successMessage.value = "Cantidad actualizada"
@@ -146,18 +147,44 @@ class PresaleDetailViewModel(
         }
     }
 
-    fun updateDeliveryQuantities(updates: Map<String, Int>, unitPrices: Map<String, Double>, expectedRevision: Int, onComplete: () -> Unit) {
+    fun updateDeliveryQuantities(
+        updates: Map<String, Int>,
+        unitPrices: Map<String, Double>,
+        originalPrices: Map<String, Double>,
+        initialRevision: Int,
+        onComplete: () -> Unit
+    ) {
         if (_isLoading.value) return
         viewModelScope.launch {
             _isLoading.value = true
+            var currentRevision = initialRevision
             var success = true
             for ((productId, qty) in updates) {
-                val uPrice = unitPrices[productId]
-                val req = UpdateDeliveryQuantityRequestDto(productId = productId, quantity = qty, expectedRevision = expectedRevision, unitPrice = uPrice)
+                val newPrice = unitPrices[productId]
+                val origPrice = originalPrices[productId]
+                val priceToSend = if (isAdmin && newPrice != null && newPrice != origPrice && newPrice > 0.0) newPrice else null
+
+                val req = UpdateDeliveryQuantityRequestDto(
+                    productId = productId,
+                    quantity = qty,
+                    expectedRevision = currentRevision,
+                    unitPrice = priceToSend
+                )
                 val result = salesRepository.updateDeliveryQuantity(idempotencyKey, saleId, req)
-                if (result.isFailure) {
-                    _errorMessage.value = result.exceptionOrNull()?.message ?: "Error al actualizar producto $productId"
+                if (result.isSuccess) {
+                    val deliveryDto = result.getOrNull()
+                    if (deliveryDto?.revision != null) {
+                        currentRevision = deliveryDto.revision
+                    }
+                    _delivery.value = deliveryDto
+                } else {
+                    val err = result.exceptionOrNull()
+                    _errorMessage.value = err?.message ?: "Error al actualizar producto $productId"
                     success = false
+                    if (err?.message?.contains("409") == true) {
+                        loadDelivery()
+                        loadSale()
+                    }
                     break
                 }
                 idempotencyKey = UUID.randomUUID().toString()

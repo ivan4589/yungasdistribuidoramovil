@@ -41,11 +41,13 @@ fun PresaleDetailScreen(
     var showDeliveryDialog by rememberSaveable { mutableStateOf(false) }
     var showReturnDialog by rememberSaveable { mutableStateOf(false) }
     var showActiveDeliveryEditDialog by rememberSaveable { mutableStateOf(false) }
-    var returnProductTarget by remember { mutableStateOf<DeliveryProductDto?>(null) }
+    var returnProductTargetId by rememberSaveable { mutableStateOf<String?>(null) }
+    val returnProductTarget = delivery?.products?.firstOrNull { it.productId == returnProductTargetId }
     var returnEventQty by rememberSaveable { mutableStateOf("") }
     var validationMessage by remember { mutableStateOf<String?>(null) }
     
-    var modifyingItem by remember { mutableStateOf<DeliveryProductDto?>(null) }
+    var modifyingItemId by rememberSaveable { mutableStateOf<String?>(null) }
+    val modifyingItem = delivery?.products?.firstOrNull { it.productId == modifyingItemId }
     var newQtyInput by rememberSaveable { mutableStateOf("") }
     var eventQty by rememberSaveable { mutableStateOf("") }
     var selectedProductId by rememberSaveable { mutableStateOf("") }
@@ -158,7 +160,7 @@ fun PresaleDetailScreen(
 
     returnProductTarget?.let { target ->
         AlertDialog(
-            onDismissRequest = { returnProductTarget = null; returnEventQty = "" },
+            onDismissRequest = { returnProductTargetId = null; returnEventQty = "" },
             title = { Text("Registrar Devolución: ${target.name ?: target.productId}") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -177,13 +179,13 @@ fun PresaleDetailScreen(
                     val rev = delivery?.revision ?: 0
                     if (qty > 0 && qty <= (target.delivered ?: 0)) {
                         viewModel.recordDeliveryEvent(target.productId ?: "", "RETURN", qty, rev)
-                        returnProductTarget = null
+                        returnProductTargetId = null
                         returnEventQty = ""
                     }
                 }) { Text("Confirmar Devolución") }
             },
             dismissButton = {
-                TextButton(onClick = { returnProductTarget = null; returnEventQty = "" }) { Text("Cancelar") }
+                TextButton(onClick = { returnProductTargetId = null; returnEventQty = "" }) { Text("Cancelar") }
             }
         )
     }
@@ -295,7 +297,7 @@ fun PresaleDetailScreen(
                                     OutlinedButton(
                                         onClick = {
                                             val targetDto = currentProducts.find { it.productId == pId } ?: DeliveryProductDto(null, pId, line.name, line.ordered, delivered, line.ordered - delivered, line.unitPrice)
-                                            returnProductTarget = targetDto
+                                            returnProductTargetId = targetDto.productId
                                         },
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
@@ -497,7 +499,7 @@ fun PresaleDetailScreen(
 
     modifyingItem?.let { item ->
         AlertDialog(
-            onDismissRequest = { modifyingItem = null; newQtyInput = "" },
+            onDismissRequest = { modifyingItemId = null; newQtyInput = "" },
             title = { Text("Modificar cantidad solicitada: ${item.name ?: item.productId}") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -515,11 +517,11 @@ fun PresaleDetailScreen(
                     val q = newQtyInput.toIntOrNull() ?: item.ordered ?: 0
                     val rev = delivery?.revision ?: 0
                     viewModel.updateDeliveryQuantity(item.productId ?: "", q, rev)
-                    modifyingItem = null
+                    modifyingItemId = null
                     newQtyInput = ""
                 }) { Text("Actualizar") }
             },
-            dismissButton = { TextButton(onClick = { modifyingItem = null; newQtyInput = "" }) { Text("Cancelar") } }
+            dismissButton = { TextButton(onClick = { modifyingItemId = null; newQtyInput = "" }) { Text("Cancelar") } }
         )
     }
 
@@ -716,7 +718,7 @@ fun PresaleDetailScreen(
                                 )
                                 if (d != null && s.status != "CONFIRMED" && s.status != "CANCELLED") {
                                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                                        TextButton(onClick = { modifyingItem = prod }) {
+                                        TextButton(onClick = { modifyingItemId = prod.productId }) {
                                             Text("Modificar pedido")
                                         }
                                     }

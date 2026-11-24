@@ -21,13 +21,14 @@ class AppDatabaseMigrationTest {
     @Test fun migrate4WithCancelledPdfToLatest() = checkUpgrade(4)
     @Test fun migrate4WithoutCancelledPdfToLatest() = checkUpgrade(4, missingColumn = true)
     @Test fun migrate5ToLatest() = checkUpgrade(5)
+    @Test fun migrate6ToLatest() = checkUpgrade(6)
 
     @Test
     fun freshDatabaseAndReopen() {
         val name = "migration-fresh-${System.nanoTime()}"
         try {
             openRoom(name).useRoom { room ->
-                assertEquals(6, room.openHelper.writableDatabase.version)
+                assertEquals(7, room.openHelper.writableDatabase.version)
             }
             openRoom(name).useRoom { room ->
                 room.openHelper.writableDatabase.query("SELECT cancelledPdfUrl FROM sales").use {
@@ -46,7 +47,7 @@ class AppDatabaseMigrationTest {
             // Opening through Room performs real schema validation, not just SQL checks.
             openRoom(name).useRoom { room ->
                 val db = room.openHelper.writableDatabase
-                assertEquals(6, db.version)
+                assertEquals(7, db.version)
                 db.query("SELECT fullName FROM clients WHERE id = 'c1'").use {
                     assertTrue(it.moveToFirst())
                     assertEquals("Client 1", it.getString(0))
@@ -90,7 +91,7 @@ class AppDatabaseMigrationTest {
                 }
             }
             // Reopen to check the persisted Room identity after migration.
-            openRoom(name).useRoom { assertEquals(6, it.openHelper.writableDatabase.version) }
+            openRoom(name).useRoom { assertEquals(7, it.openHelper.writableDatabase.version) }
         } finally {
             context.deleteDatabase(name)
         }
@@ -101,7 +102,7 @@ class AppDatabaseMigrationTest {
 
     private fun openRoom(name: String): AppDatabase =
         Room.databaseBuilder(context, AppDatabase::class.java, name)
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
             .build()
 
     private fun createLegacyDatabase(name: String, version: Int, missingColumn: Boolean) {
@@ -148,6 +149,9 @@ class AppDatabaseMigrationTest {
                     }
                     if (version >= 5) {
                         MIGRATION_4_5.migrate(db)
+                    }
+                    if (version >= 6) {
+                        MIGRATION_5_6.migrate(db)
                     }
                 }
                 override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) =

@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.yungasdistribuidora.data.local.bonus.BonusRuleEntity
 import com.example.yungasdistribuidora.data.remote.dto.BonusAllocationRequestDto
 import com.example.yungasdistribuidora.data.remote.dto.SaleResponseDto
+import com.example.yungasdistribuidora.data.remote.dto.forUpdate
 import com.example.yungasdistribuidora.data.remote.dto.client.CreateClientRequest
 import com.example.yungasdistribuidora.domain.model.*
 import com.example.yungasdistribuidora.domain.repository.BonusRuleRepository
@@ -373,7 +374,7 @@ class NewPresaleViewModel(
             _errorMessage.value = null
 
             val result = if (isEditing) {
-                requireNotNull(salesRepository).updateSale(idempotencyKey, requireNotNull(editingSaleId), requestDto)
+                requireNotNull(salesRepository).updateSale(idempotencyKey, requireNotNull(editingSaleId), requestDto.forUpdate())
             } else presaleRepository.registerSale(idempotencyKey, requestDto)
             result.onSuccess { saleResponse ->
                 _registeredSale.value = saleResponse

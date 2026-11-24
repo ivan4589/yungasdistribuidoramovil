@@ -7,18 +7,33 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.yungasdistribuidora.data.remote.dto.*
+import com.example.yungasdistribuidora.domain.model.Product
+import com.example.yungasdistribuidora.domain.repository.ProductRepository
 import com.example.yungasdistribuidora.domain.repository.SalesRepository
+import com.example.yungasdistribuidora.domain.usecase.CalculateProductPriceUseCase
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.text.Normalizer
 import java.util.*
+
+data class EditDeliveryLine(
+    val productId: String,
+    val name: String,
+    val ordered: Int,
+    val delivered: Int,
+    val unitPrice: Double,
+    val isNew: Boolean = false
+)
 
 class PresaleDetailViewModel(
     private val salesRepository: SalesRepository,
+    private val productRepository: ProductRepository?,
     private val saleId: String,
-    private val isAdmin: Boolean
+    val isAdmin: Boolean,
+    private val calculateProductPriceUseCase: CalculateProductPriceUseCase = CalculateProductPriceUseCase()
 ) : ViewModel() {
 
     private val _sale = MutableStateFlow<SaleResponseDto?>(null)
@@ -26,6 +41,12 @@ class PresaleDetailViewModel(
 
     private val _delivery = MutableStateFlow<DeliveryResponseDto?>(null)
     val delivery = _delivery.asStateFlow()
+
+    private val _catalogProducts = MutableStateFlow<List<Product>>(emptyList())
+    val catalogProducts = _catalogProducts.asStateFlow()
+
+    private val _editDraftLines = MutableStateFlow<List<EditDeliveryLine>>(emptyList())
+    val editDraftLines = _editDraftLines.asStateFlow()
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading = _isLoading.asStateFlow()
@@ -41,6 +62,73 @@ class PresaleDetailViewModel(
     init {
         loadSale()
         loadDelivery()
+        loadCatalog()
+    }
+
+    private fun loadCatalog() {
+        if (productRepository == null) return
+        viewModelScope.launch {
+            productRepository.getProducts(null, null).collect { list ->
+                _catalogProducts.value = list.filter { it.isActive }
+            }
+        }
+    }
+
+    fun initEditDraft(products: List<DeliveryProductDto>, saleDetailsMap: Map<String, Double>) {
+        val lines = products.map { p ->
+            val pId = p.productId ?: ""
+            val price = p.unitPrice ?: saleDetailsMap[pId] ?: 0.0
+            EditDeliveryLine(
+                productId = pId,
+                name = p.name ?: pId,
+                ordered = p.ordered ?: 0,
+                delivered = p.delivered ?: 0,
+                unitPrice = price,
+                isNew = false
+            )
+        }
+        _editDraftLines.value = lines
+    }
+
+    fun updateDraftItem(productId: String, ordered: Int, unitPrice: Double) {
+        val current = _editDraftLines.value.toMutableList()
+        val index = current.indexOfFirst { it.productId == productId }
+        if (index >= 0) {
+            val item = current[index]
+            current[index] = item.copy(ordered = ordered, unitPrice = unitPrice)
+            _editDraftLines.value = current
+        }
+    }
+
+    fun addProductToDraft(product: Product, ordered: Int, unitPrice: Double) {
+        val current = _editDraftLines.value.toMutableList()
+        val index = current.indexOfFirst { it.productId == product.id }
+        if (index >= 0) {
+            val existing = current[index]
+            current[index] = existing.copy(ordered = existing.ordered + ordered, unitPrice = if (isAdmin) unitPrice else existing.unitPrice)
+        } else {
+            current.add(
+                EditDeliveryLine(
+                    productId = product.id,
+                    name = product.name,
+                    ordered = ordered,
+                    delivered = 0,
+                    unitPrice = unitPrice,
+                    isNew = true
+                )
+            )
+        }
+        _editDraftLines.value = current
+    }
+
+    fun removeDraftItem(productId: String) {
+        val current = _editDraftLines.value.toMutableList()
+        current.removeAll { it.productId == productId }
+        _editDraftLines.value = current
+    }
+
+    fun calculatePrice(product: Product, quantity: Double): Double {
+        return calculateProductPriceUseCase(product, null, quantity)
     }
 
     fun loadSale() {
@@ -57,10 +145,10 @@ class PresaleDetailViewModel(
 
     fun loadDelivery() {
         viewModelScope.launch {
-            salesRepository.getDelivery(saleId).onSuccess {
+            salesRepository.getDeliveryDetails(saleId).onSuccess {
                 _delivery.value = it
             }.onFailure {
-                // If delivery not started yet or 404, that's fine
+                // Ignore if not started yet
             }
         }
     }
@@ -69,9 +157,10 @@ class PresaleDetailViewModel(
         if (_isLoading.value) return
         viewModelScope.launch {
             _isLoading.value = true
-            salesRepository.startDelivery(saleId).onSuccess {
+            salesRepository.startDelivery(idempotencyKey, saleId).onSuccess {
                 _delivery.value = it
                 _successMessage.value = "Entrega iniciada"
+                idempotencyKey = UUID.randomUUID().toString()
             }.onFailure {
                 _errorMessage.value = it.message ?: "Error al iniciar entrega"
             }
@@ -79,33 +168,133 @@ class PresaleDetailViewModel(
         }
     }
 
-    fun postDeliveryEvent(type: String, quantity: Int?, productId: String?, observations: String?) {
+    fun recordDeliveryEvent(productId: String, kind: String, quantity: Int, expectedRevision: Int) {
         if (_isLoading.value) return
         viewModelScope.launch {
             _isLoading.value = true
-            val req = DeliveryEventRequestDto(type, quantity, productId, observations)
-            salesRepository.postDeliveryEvent(idempotencyKey, saleId, req).onSuccess {
+            val req = DeliveryEventRequestDto(productId = productId, kind = kind, quantity = quantity, expectedRevision = expectedRevision)
+            salesRepository.recordDeliveryEvent(idempotencyKey, saleId, req).onSuccess {
                 _delivery.value = it
-                _successMessage.value = "Evento de entrega registrado"
+                _successMessage.value = if (kind == "DELIVER") "Entrega registrada" else "Devolución registrada"
                 idempotencyKey = UUID.randomUUID().toString()
                 loadSale()
-            }.onFailure {
-                _errorMessage.value = it.message ?: "Error al registrar evento de entrega"
+                loadDelivery()
+            }.onFailure { err ->
+                _errorMessage.value = err.message ?: "Error al registrar evento"
+                if (err.message?.contains("409") == true) {
+                    loadDelivery()
+                }
             }
             _isLoading.value = false
         }
     }
 
-    fun updateDeliveryQuantity(productId: String, quantity: Int, expectedRevision: Int) {
+    fun updateDeliveryQuantity(productId: String, quantity: Int, expectedRevision: Int, unitPrice: Double? = null) {
         if (_isLoading.value) return
         viewModelScope.launch {
             _isLoading.value = true
-            val req = UpdateDeliveryQuantityRequestDto(productId, quantity, expectedRevision)
-            salesRepository.updateDeliveryQuantity(saleId, req).onSuccess {
+            val priceToSend = if (isAdmin && unitPrice != null && unitPrice > 0.0) unitPrice else null
+            val req = UpdateDeliveryQuantityRequestDto(productId = productId, quantity = quantity, expectedRevision = expectedRevision, unitPrice = priceToSend)
+            salesRepository.updateDeliveryQuantity(idempotencyKey, saleId, req).onSuccess {
                 _delivery.value = it
                 _successMessage.value = "Cantidad actualizada"
-            }.onFailure {
-                _errorMessage.value = it.message ?: "Error al actualizar cantidad (revisión desactualizada)"
+                idempotencyKey = UUID.randomUUID().toString()
+                loadSale()
+                loadDelivery()
+            }.onFailure { err ->
+                _errorMessage.value = err.message ?: "Error al actualizar cantidad"
+                if (err.message?.contains("409") == true) {
+                    loadDelivery()
+                }
+            }
+            _isLoading.value = false
+        }
+    }
+
+    fun saveEditDraft(
+        originalProducts: List<DeliveryProductDto>,
+        originalPrices: Map<String, Double>,
+        initialRevision: Int,
+        onComplete: () -> Unit
+    ) {
+        if (_isLoading.value) return
+        val draftLines = _editDraftLines.value
+        if (draftLines.isEmpty()) {
+            _errorMessage.value = "El pedido no puede quedarse sin productos."
+            return
+        }
+
+        viewModelScope.launch {
+            _isLoading.value = true
+            var currentRevision = initialRevision
+            var success = true
+
+            // 1. Process updates and additions from draft lines
+            for (line in draftLines) {
+                val origPrice = originalPrices[line.productId] ?: line.unitPrice
+                val priceToSend = if (isAdmin && line.unitPrice != origPrice && line.unitPrice > 0.0) line.unitPrice else null
+
+                val req = UpdateDeliveryQuantityRequestDto(
+                    productId = line.productId,
+                    quantity = line.ordered,
+                    expectedRevision = currentRevision,
+                    unitPrice = priceToSend
+                )
+                val result = salesRepository.updateDeliveryQuantity(idempotencyKey, saleId, req)
+                if (result.isSuccess) {
+                    val deliveryDto = result.getOrNull()
+                    if (deliveryDto?.revision != null) {
+                        currentRevision = deliveryDto.revision
+                    }
+                    _delivery.value = deliveryDto
+                } else {
+                    val err = result.exceptionOrNull()
+                    _errorMessage.value = err?.message ?: "Error al actualizar producto ${line.name}"
+                    success = false
+                    if (err?.message?.contains("409") == true) {
+                        loadDelivery()
+                        loadSale()
+                    }
+                    break
+                }
+                idempotencyKey = UUID.randomUUID().toString()
+            }
+
+            // 2. Process removals (products that were in original delivery but are no longer in draft lines with delivered == 0)
+            if (success) {
+                val draftIds = draftLines.map { it.productId }.toSet()
+                for (orig in originalProducts) {
+                    val pId = orig.productId ?: ""
+                    if (!draftIds.contains(pId) && (orig.delivered ?: 0) == 0) {
+                        val req = UpdateDeliveryQuantityRequestDto(
+                            productId = pId,
+                            quantity = 0,
+                            expectedRevision = currentRevision,
+                            unitPrice = null
+                        )
+                        val result = salesRepository.updateDeliveryQuantity(idempotencyKey, saleId, req)
+                        if (result.isSuccess) {
+                            val deliveryDto = result.getOrNull()
+                            if (deliveryDto?.revision != null) {
+                                currentRevision = deliveryDto.revision
+                            }
+                            _delivery.value = deliveryDto
+                        } else {
+                            val err = result.exceptionOrNull()
+                            _errorMessage.value = err?.message ?: "Error al retirar producto"
+                            success = false
+                            break
+                        }
+                        idempotencyKey = UUID.randomUUID().toString()
+                    }
+                }
+            }
+
+            if (success) {
+                _successMessage.value = "Pedido actualizado correctamente"
+                loadSale()
+                loadDelivery()
+                onComplete()
             }
             _isLoading.value = false
         }
@@ -115,13 +304,18 @@ class PresaleDetailViewModel(
         if (_isLoading.value) return
         viewModelScope.launch {
             _isLoading.value = true
-            salesRepository.confirmSale(idempotencyKey, saleId).onSuccess {
+            val apiCall = if (_delivery.value?.deliveryMode == true) {
+                salesRepository.confirmDelivery(idempotencyKey, saleId)
+            } else {
+                salesRepository.confirmSale(idempotencyKey, saleId)
+            }
+            apiCall.onSuccess {
                 _sale.value = it
                 _successMessage.value = "Venta confirmada exitosamente"
                 idempotencyKey = UUID.randomUUID().toString()
                 loadDelivery()
-            }.onFailure {
-                _errorMessage.value = it.message ?: "Error al confirmar la venta"
+            }.onFailure { err ->
+                _errorMessage.value = err.message ?: "Error al confirmar la venta"
             }
             _isLoading.value = false
         }
@@ -134,7 +328,7 @@ class PresaleDetailViewModel(
         }
         viewModelScope.launch {
             _isLoading.value = true
-            salesRepository.cancelSale(idempotencyKey, saleId).onSuccess {
+            salesRepository.cancelSale(idempotencyKey, saleId, "Cancelado por el administrador").onSuccess {
                 _sale.value = it
                 _successMessage.value = "Preventa cancelada"
                 idempotencyKey = UUID.randomUUID().toString()
@@ -149,8 +343,8 @@ class PresaleDetailViewModel(
         if (_isLoading.value || _sale.value?.status != "CONFIRMED") return
         viewModelScope.launch {
             _isLoading.value = true
-            salesRepository.sendWhatsapp(saleId, resend).onSuccess { summary ->
-                _successMessage.value = summary.message()
+            salesRepository.sendWhatsapp(saleId, resend).onSuccess {
+                _successMessage.value = "Mensaje de WhatsApp enviado"
             }.onFailure {
                 _errorMessage.value = it.message ?: "Error al enviar WhatsApp"
             }
@@ -162,7 +356,8 @@ class PresaleDetailViewModel(
         if (_isLoading.value || _sale.value?.status != "CONFIRMED") return
         viewModelScope.launch {
             _isLoading.value = true
-            salesRepository.downloadPdf(saleId).onSuccess { body ->
+            val isCancelled = _sale.value?.status == "CANCELLED"
+            salesRepository.downloadPdf(saleId, isCancelled).onSuccess { body ->
                 try {
                     withContext(Dispatchers.IO) {
                         body.use {
@@ -201,5 +396,12 @@ class PresaleDetailViewModel(
 
     fun clearSuccess() {
         _successMessage.value = null
+    }
+
+    companion object {
+        fun String.normalize(): String {
+            val normalizer = Normalizer.normalize(this, Normalizer.Form.NFD)
+            return Regex("\\p{InCombiningDiacriticalMarks}+").replace(normalizer, "").lowercase()
+        }
     }
 }

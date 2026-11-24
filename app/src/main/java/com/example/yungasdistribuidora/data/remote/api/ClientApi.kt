@@ -1,8 +1,17 @@
 package com.example.yungasdistribuidora.data.remote.api
 
+import com.google.gson.annotations.SerializedName
 import com.example.yungasdistribuidora.data.remote.dto.client.*
 import retrofit2.Response
 import retrofit2.http.*
+
+data class ClientContactDto(
+    @SerializedName("id") val id: String,
+    @SerializedName("name") val name: String,
+    @SerializedName("phone") val phone: String?,
+    @SerializedName("isActive") val isActive: Boolean,
+    @SerializedName("whatsappConsent") val whatsappConsent: Boolean
+)
 
 interface ClientApi {
     @GET("clients")
@@ -16,6 +25,11 @@ interface ClientApi {
     suspend fun getClientById(
         @Path("id") id: String
     ): Response<ClientDto>
+
+    @GET("clients/{id}/contacts")
+    suspend fun getClientContacts(
+        @Path("id") id: String
+    ): Response<List<ClientContactDto>>
 
     @POST("clients")
     suspend fun createClient(

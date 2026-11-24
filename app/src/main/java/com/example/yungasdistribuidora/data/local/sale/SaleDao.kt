@@ -27,6 +27,9 @@ interface SaleDao {
     @Query("SELECT * FROM sales ORDER BY createdAt DESC")
     fun getAllSales(): Flow<List<SaleEntity>>
 
+    @Query("SELECT * FROM sales")
+    suspend fun getAllSalesList(): List<SaleEntity>
+
     @Query("SELECT * FROM sales WHERE id = :id")
     suspend fun getSaleById(id: String): SaleEntity?
 

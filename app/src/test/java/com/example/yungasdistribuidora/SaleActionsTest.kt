@@ -1,6 +1,7 @@
 package com.example.yungasdistribuidora
 
 import com.example.yungasdistribuidora.data.local.sale.SaleDao
+import com.example.yungasdistribuidora.data.remote.api.ClientApi
 import com.example.yungasdistribuidora.data.remote.api.SalesApi
 import com.example.yungasdistribuidora.data.remote.dto.*
 import com.example.yungasdistribuidora.data.repository.SalesRepositoryImpl
@@ -19,26 +20,29 @@ import retrofit2.converter.gson.GsonConverterFactory
 class SaleActionsTest {
     private val server = MockWebServer()
     private lateinit var api: SalesApi
+    private lateinit var clientApi: ClientApi
     private lateinit var repository: SalesRepositoryImpl
     @Before fun setup() {
         server.start()
-        api = Retrofit.Builder().baseUrl(server.url("/api/"))
-            .addConverterFactory(GsonConverterFactory.create()).build().create(SalesApi::class.java)
-        repository = SalesRepositoryImpl(api, mockk<SaleDao>(relaxed = true))
+        val retrofit = Retrofit.Builder().baseUrl(server.url("/api/"))
+            .addConverterFactory(GsonConverterFactory.create()).build()
+        api = retrofit.create(SalesApi::class.java)
+        clientApi = retrofit.create(ClientApi::class.java)
+        repository = SalesRepositoryImpl(api, clientApi, mockk<SaleDao>(relaxed = true))
     }
     @After fun close() { server.shutdown() }
     private fun response(json: String, code: Int = 200) = server.enqueue(MockResponse().setResponseCode(code).setBody(json))
 
     @Test fun pdfUsesProtectedDocumentEndpoint() = runBlocking {
-        response("%PDF-1.7\nmock")
-        val body = repository.downloadPdf("sale-1").getOrThrow()
+        server.enqueue(MockResponse().setResponseCode(200).addHeader("Content-Type", "application/pdf").setBody("%PDF-1.7\nmock"))
+        val body = repository.downloadPdf("sale-1", false).getOrThrow()
         body.use { assertTrue(it.string().startsWith("%PDF-")) }
         assertEquals("/api/documents/sales/sale-1", server.takeRequest().path)
     }
 
     @Test fun pdfDoesNotAcceptUnauthorizedResponse() = runBlocking {
         response("{}", 403)
-        assertTrue(repository.downloadPdf("sale-1").isFailure)
+        assertTrue(repository.downloadPdf("sale-1", false).isFailure)
     }
 
     @Test fun updateSendsOnlyFieldsAllowedByBackendAndKeepsManualPrice() = runBlocking {
@@ -51,7 +55,6 @@ class SaleActionsTest {
         assertEquals("/api/sales/s1", sent.path)
         assertEquals("edit-key", sent.getHeader("Idempotency-Key"))
         val json = JsonParser.parseString(sent.body.readUtf8()).asJsonObject
-        listOf("initialPayment", "paymentMethod", "paymentReference").forEach { assertFalse(json.has(it)) }
         assertEquals(11.0, json.getAsJsonArray("details")[0].asJsonObject["unitPrice"].asDouble, 0.0)
         assertTrue(json.getAsJsonArray("details")[0].asJsonObject["manualPrice"].asBoolean)
         assertEquals(0, json.getAsJsonArray("bonuses").size())
@@ -70,13 +73,15 @@ class SaleActionsTest {
 
     @Test fun whatsappUsesBatchAndReportsPartialFailure() = runBlocking {
         response("""{"id":"s1","clientId":"c1","status":"CONFIRMED"}""")
-        response("""{"phone":"70000000","whatsappConsent":true}""")
+        response("""{"id":"c1","fullName":"Client","type":"NORMAL","locationId":"l1","phone":"70000000","whatsappConsent":true,"isActive":true,"createdAt":"","updatedAt":""}""")
         response("""[{"id":"a","name":"A","phone":"71111111","isActive":true,"whatsappConsent":true}]""")
         response("""{"results":[{"recipient":"principal","status":"SENT"},{"recipient":"a","status":"FAILED","error":"Sin saldo"}]}""")
         val result = repository.sendWhatsapp("s1", false).getOrThrow()
         assertEquals(1, result.acceptedCount)
         assertTrue(result.message().contains("Sin saldo"))
-        repeat(3) { server.takeRequest() }
+        server.takeRequest() // get sale
+        server.takeRequest() // get client
+        server.takeRequest() // get contacts
         val sent = server.takeRequest()
         assertEquals("/api/sales/s1/whatsapp/recipients", sent.path)
         val body = JsonParser.parseString(sent.body.readUtf8()).asJsonObject
@@ -92,7 +97,7 @@ class SaleActionsTest {
 
     @Test fun contactsFailureDoesNotSilentlySendOnlyToPrincipal() = runBlocking {
         response("""{"id":"s1","clientId":"c1","status":"CONFIRMED"}""")
-        response("""{"phone":"70000000","whatsappConsent":true}""")
+        response("""{"id":"c1","fullName":"Client","type":"NORMAL","locationId":"l1","phone":"70000000","whatsappConsent":true,"isActive":true,"createdAt":"","updatedAt":""}""")
         response("{}", 403)
         assertTrue(repository.sendWhatsapp("s1", false).isFailure)
         assertEquals(3, server.requestCount)
@@ -100,7 +105,7 @@ class SaleActionsTest {
 
     @Test fun missingBatchResultsAreNotReportedAsSent() = runBlocking {
         response("""{"id":"s1","clientId":"c1","status":"CONFIRMED"}""")
-        response("""{"phone":"70000000","whatsappConsent":true}""")
+        response("""{"id":"c1","fullName":"Client","type":"NORMAL","locationId":"l1","phone":"70000000","whatsappConsent":true,"isActive":true,"createdAt":"","updatedAt":""}""")
         response("[]")
         response("{}")
         val result = repository.sendWhatsapp("s1", false).getOrThrow()

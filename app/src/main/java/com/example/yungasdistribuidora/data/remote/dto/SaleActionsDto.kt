@@ -10,6 +10,10 @@ data class UpdateSaleRequestDto(
     val dueDate: String?
 )
 
+data class CancelSaleRequestDto(
+    val reason: String
+)
+
 fun CreateSaleRequestDto.forUpdate() = UpdateSaleRequestDto(
     clientId, details, bonuses.orEmpty(), discount, observations.orEmpty(), saleType, dueDate
 )

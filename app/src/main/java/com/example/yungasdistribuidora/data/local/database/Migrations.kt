@@ -131,9 +131,6 @@ val MIGRATION_3_4 = object : Migration(3, 4) {
     }
 }
 
-// Version 4 existed both with and without this column: fresh installs used the
-// old entity, while upgraded installs used MIGRATION_3_4. Reconcile both without
-// dropping sales, and bump the version so Room also refreshes its identity hash.
 val MIGRATION_4_5 = object : Migration(4, 5) {
     override fun migrate(db: SupportSQLiteDatabase) {
         val hasCancelledPdfUrl = db.query("PRAGMA table_info(`sales`)").use { cursor ->
@@ -147,8 +144,6 @@ val MIGRATION_4_5 = object : Migration(4, 5) {
         if (!hasCancelledPdfUrl) {
             db.execSQL("ALTER TABLE sales ADD COLUMN cancelledPdfUrl TEXT")
         }
-        // Old migrated databases used minimumQuantity/createdAt/updatedAt;
-        // fresh databases used minQuantity/startDate/endDate. Preserve both.
         val columns = db.query("PRAGMA table_info(`bonus_rules`)").use { cursor ->
             val nameIndex = cursor.getColumnIndexOrThrow("name")
             buildSet { while (cursor.moveToNext()) add(cursor.getString(nameIndex)) }
@@ -172,5 +167,48 @@ val MIGRATION_4_5 = object : Migration(4, 5) {
             FROM bonus_rules""")
         db.execSQL("DROP TABLE bonus_rules")
         db.execSQL("ALTER TABLE bonus_rules_v5 RENAME TO bonus_rules")
+    }
+}
+
+val MIGRATION_5_6 = object : Migration(5, 6) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS sales_v6 (
+                id TEXT PRIMARY KEY NOT NULL,
+                saleNumber TEXT NOT NULL,
+                clientId TEXT NOT NULL,
+                clientName TEXT,
+                status TEXT NOT NULL,
+                paymentStatus TEXT,
+                saleType TEXT NOT NULL,
+                dueDate TEXT,
+                subtotal REAL NOT NULL,
+                discount REAL NOT NULL,
+                total REAL NOT NULL,
+                paidAmount REAL,
+                balance REAL,
+                observations TEXT,
+                pdfUrl TEXT,
+                sellerId TEXT,
+                sellerName TEXT,
+                createdAt TEXT NOT NULL,
+                updatedAt TEXT NOT NULL,
+                cancelledPdfUrl TEXT
+            )
+        """)
+        db.execSQL("""
+            INSERT INTO sales_v6 (
+                id, saleNumber, clientId, clientName, status, paymentStatus, saleType, dueDate,
+                subtotal, discount, total, paidAmount, balance, observations, pdfUrl, sellerId,
+                sellerName, createdAt, updatedAt, cancelledPdfUrl
+            )
+            SELECT 
+                id, saleNumber, clientId, clientName, status, paymentStatus, saleType, dueDate,
+                subtotal, discount, total, paidAmount, balance, observations, pdfUrl, sellerId,
+                sellerName, createdAt, updatedAt, cancelledPdfUrl
+            FROM sales
+        """)
+        db.execSQL("DROP TABLE sales")
+        db.execSQL("ALTER TABLE sales_v6 RENAME TO sales")
     }
 }

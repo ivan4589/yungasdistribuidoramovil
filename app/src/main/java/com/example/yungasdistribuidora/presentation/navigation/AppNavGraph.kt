@@ -101,7 +101,7 @@ fun AppNavGraph() {
                     onNavigateOnline = { route ->
                         scope.launch {
                         isOfflineMode = false
-                                                    authRepo.getCurrentUser().onSuccess { user ->
+                            authRepo.getCurrentUser().onSuccess { user ->
                                 currentUserName = user.name
                                 currentUserEmail = user.email
                                 currentUserRole = user.role
@@ -185,7 +185,7 @@ fun AppNavGraph() {
                     userRole = tempUserRole,
                     onNavigateToHome = { route ->
                         scope.launch {
-                                                    authRepo.getCurrentUser().onSuccess { user ->
+                            authRepo.getCurrentUser().onSuccess { user ->
                                 currentUserName = user.name
                                 currentUserEmail = user.email
                                 currentUserRole = user.role
@@ -210,7 +210,7 @@ fun AppNavGraph() {
                     viewModel = viewModel,
                     onVerified = { route ->
                         scope.launch {
-                                                    authRepo.getCurrentUser().onSuccess { user ->
+                            authRepo.getCurrentUser().onSuccess { user ->
                                 currentUserName = user.name
                                 currentUserEmail = user.email
                                 currentUserRole = user.role
@@ -243,7 +243,7 @@ fun AppNavGraph() {
                     viewModel = viewModel,
                     onRecovered = { route ->
                         scope.launch {
-                                                    authRepo.getCurrentUser().onSuccess { user ->
+                            authRepo.getCurrentUser().onSuccess { user ->
                                 currentUserName = user.name
                                 currentUserEmail = user.email
                                 currentUserRole = user.role

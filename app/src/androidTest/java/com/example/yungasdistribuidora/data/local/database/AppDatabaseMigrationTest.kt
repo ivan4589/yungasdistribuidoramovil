@@ -22,6 +22,8 @@ class AppDatabaseMigrationTest {
     @Test fun migrate4WithoutCancelledPdfToLatest() = checkUpgrade(4, missingColumn = true)
     @Test fun migrate5ToLatest() = checkUpgrade(5)
     @Test fun migrate6ToLatest() = checkUpgrade(6)
+    @Test fun migrate6LegacyNonNullPaymentColumnsToLatest() =
+        checkUpgrade(6, forceLegacySalesNullability = true)
 
     @Test
     fun freshDatabaseAndReopen() {
@@ -40,10 +42,10 @@ class AppDatabaseMigrationTest {
         }
     }
 
-    private fun checkUpgrade(version: Int, missingColumn: Boolean = false) {
+    private fun checkUpgrade(version: Int, missingColumn: Boolean = false, forceLegacySalesNullability: Boolean = false) {
         val name = "migration-$version-${System.nanoTime()}"
         try {
-            createLegacyDatabase(name, version, missingColumn)
+            createLegacyDatabase(name, version, missingColumn, forceLegacySalesNullability)
             // Opening through Room performs real schema validation, not just SQL checks.
             openRoom(name).useRoom { room ->
                 val db = room.openHelper.writableDatabase
@@ -105,7 +107,7 @@ class AppDatabaseMigrationTest {
             .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
             .build()
 
-    private fun createLegacyDatabase(name: String, version: Int, missingColumn: Boolean) {
+    private fun createLegacyDatabase(name: String, version: Int, missingColumn: Boolean, forceLegacySalesNullability: Boolean) {
         val config = SupportSQLiteOpenHelper.Configuration.builder(context)
             .name(name)
             .callback(object : SupportSQLiteOpenHelper.Callback(version) {
@@ -152,6 +154,31 @@ class AppDatabaseMigrationTest {
                     }
                     if (version >= 6) {
                         MIGRATION_5_6.migrate(db)
+                        if (forceLegacySalesNullability) {
+                            // Reproduce version-6 builds where SQLite has NOT NULL payment columns
+                            // although Room's SaleEntity already expects nullable columns.
+                            db.execSQL("CREATE TEMP TABLE _d AS SELECT * FROM sale_details")
+                            db.execSQL("CREATE TEMP TABLE _b AS SELECT * FROM sale_bonuses")
+                            db.execSQL("""CREATE TABLE sales_legacy (
+                                id TEXT PRIMARY KEY NOT NULL,
+                                saleNumber TEXT NOT NULL, clientId TEXT NOT NULL,
+                                clientName TEXT, status TEXT NOT NULL,
+                                paymentStatus TEXT NOT NULL, saleType TEXT NOT NULL,
+                                dueDate TEXT, subtotal REAL NOT NULL, discount REAL NOT NULL,
+                                total REAL NOT NULL, paidAmount REAL NOT NULL,
+                                balance REAL NOT NULL, observations TEXT, pdfUrl TEXT,
+                                sellerId TEXT, sellerName TEXT,
+                                createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL,
+                                cancelledPdfUrl TEXT
+                            )""")
+                            db.execSQL("INSERT INTO sales_legacy SELECT * FROM sales")
+                            db.execSQL("DROP TABLE sales")
+                            db.execSQL("ALTER TABLE sales_legacy RENAME TO sales")
+                            db.execSQL("INSERT INTO sale_details SELECT * FROM _d")
+                            db.execSQL("INSERT INTO sale_bonuses SELECT * FROM _b")
+                            db.execSQL("DROP TABLE _d")
+                            db.execSQL("DROP TABLE _b")
+                        }
                     }
                 }
                 override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) =

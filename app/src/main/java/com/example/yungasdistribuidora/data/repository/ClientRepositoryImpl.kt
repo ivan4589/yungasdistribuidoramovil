@@ -63,7 +63,7 @@ class ClientRepositoryImpl(
                 if (cached != null) Result.success(cached.toDomain())
                 else Result.failure(Exception(ErrorMapper.mapException(networkError)))
             } catch (dbError: Exception) {
-                Result.failure(Exception("Error de Room al leer cliente: ${dbError.message}", dbError))
+                Result.failure(Exception(ErrorMapper.mapException(dbError), dbError))
             }
         }
         if (response.isSuccessful && response.body() != null) {
@@ -72,7 +72,7 @@ class ClientRepositoryImpl(
                 clientDao.insertClient(dto.toEntity())
                 Result.success(dto.toDomain())
             } catch (dbError: Exception) {
-                Result.failure(Exception("Error al guardar cliente en Room: ${dbError.message}", dbError))
+                Result.failure(Exception(ErrorMapper.mapException(dbError), dbError))
             }
         }
         return try {
@@ -80,7 +80,7 @@ class ClientRepositoryImpl(
             if (cached != null) Result.success(cached.toDomain())
             else Result.failure(Exception(ErrorMapper.mapHttpCode(response.code())))
         } catch (dbError: Exception) {
-            Result.failure(Exception("Error de Room al leer cliente: ${dbError.message}", dbError))
+            Result.failure(Exception(ErrorMapper.mapException(dbError), dbError))
         }
     }
 

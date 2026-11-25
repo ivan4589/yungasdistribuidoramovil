@@ -7,6 +7,7 @@ import com.example.yungasdistribuidora.domain.model.Category
 import com.example.yungasdistribuidora.domain.model.Product
 import com.example.yungasdistribuidora.domain.model.SubCategory
 import com.example.yungasdistribuidora.domain.repository.ProductRepository
+import com.example.yungasdistribuidora.util.ErrorMapper
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
@@ -60,6 +61,7 @@ class ProductsViewModel(
     val subCategories = _subCategories.asStateFlow()
 
     val lastSyncTime: StateFlow<Long?> = productRepository.getLastSyncTime()
+        .catch { error -> _errorMessage.value = ErrorMapper.mapException(error) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     private val _rawProducts = combine(
@@ -71,8 +73,7 @@ class ProductsViewModel(
         productRepository.getProducts(catId, subCatId)
     }.catch { error ->
         if (error is kotlinx.coroutines.CancellationException) throw error
-        _errorMessage.value = "No se pudo abrir el catálogo local: ${error.message}"
-        emit(emptyList())
+        _errorMessage.value = ErrorMapper.mapException(error)
     }
 
     val products: StateFlow<List<Product>> = combine(
@@ -120,7 +121,7 @@ class ProductsViewModel(
         viewModelScope.launch {
             productRepository.getCategories().catch { error ->
                 if (error is kotlinx.coroutines.CancellationException) throw error
-                _errorMessage.value = "Error al cargar categorías: ${error.message}"
+                _errorMessage.value = ErrorMapper.mapException(error)
             }.collect { cats ->
                 _categories.value = cats
             }
@@ -128,7 +129,7 @@ class ProductsViewModel(
         viewModelScope.launch {
             productRepository.getSubCategories(null).catch { error ->
                 if (error is kotlinx.coroutines.CancellationException) throw error
-                _errorMessage.value = "Error al cargar subcategorías: ${error.message}"
+                _errorMessage.value = ErrorMapper.mapException(error)
             }.collect { subCats ->
                 _subCategories.value = subCats
             }

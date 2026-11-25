@@ -1,6 +1,7 @@
 package com.example.yungasdistribuidora.presentation.presale
 
 import androidx.lifecycle.ViewModel
+import com.example.yungasdistribuidora.util.ErrorMapper
 import androidx.lifecycle.viewModelScope
 import com.example.yungasdistribuidora.data.local.bonus.BonusRuleEntity
 import com.example.yungasdistribuidora.data.remote.dto.BonusAllocationRequestDto
@@ -157,12 +158,14 @@ class NewPresaleViewModel(
         viewModelScope.launch {
             _isLoading.value = true
             launch {
-                clientRepository.getClients(includeInactive = false, locationId = null, type = null).collect {
+                clientRepository.getClients(includeInactive = false, locationId = null, type = null)
+                    .catch { error -> _errorMessage.value = ErrorMapper.mapException(error) }.collect {
                     _clients.value = it
                 }
             }
             launch {
-                productRepository.getProducts(null, null).collect {
+                productRepository.getProducts(null, null)
+                    .catch { error -> _errorMessage.value = ErrorMapper.mapException(error) }.collect {
                     _products.value = it
                 }
             }

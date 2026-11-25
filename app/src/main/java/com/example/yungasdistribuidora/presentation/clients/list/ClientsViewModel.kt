@@ -1,6 +1,7 @@
 package com.example.yungasdistribuidora.presentation.clients.list
 
 import androidx.lifecycle.ViewModel
+import com.example.yungasdistribuidora.util.ErrorMapper
 import androidx.lifecycle.viewModelScope
 import com.example.yungasdistribuidora.domain.model.Client
 import com.example.yungasdistribuidora.domain.model.ClientType
@@ -51,7 +52,7 @@ class ClientsViewModel(
         val effectiveInactive = if (isAdmin) inactive else false
         clientRepository.getClients(effectiveInactive, locId, type)
     }.catch { e ->
-        _errorMessage.value = e.message ?: "Error al cargar datos locales de clientes"
+        _errorMessage.value = ErrorMapper.mapException(e)
         emit(emptyList())
     }
 

@@ -1,6 +1,7 @@
 package com.example.yungasdistribuidora.presentation.sales
 
 import androidx.lifecycle.ViewModel
+import com.example.yungasdistribuidora.util.ErrorMapper
 import androidx.lifecycle.viewModelScope
 import com.example.yungasdistribuidora.data.remote.dto.SaleResponseDto
 import com.example.yungasdistribuidora.domain.repository.SalesRepository
@@ -53,7 +54,7 @@ class MyPresalesViewModel(
             .onEach { _sales.value = it }
             .catch { error ->
                 if (error is kotlinx.coroutines.CancellationException) throw error
-                _errorMessage.value = "No se pudieron leer las ventas locales: ${error.message}"
+                _errorMessage.value = ErrorMapper.mapException(error)
             }
             .launchIn(viewModelScope)
     }

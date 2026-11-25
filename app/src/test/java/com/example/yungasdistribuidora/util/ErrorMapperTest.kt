@@ -7,6 +7,15 @@ import java.net.UnknownHostException
 class ErrorMapperTest {
 
     @Test
+    fun testDatabaseErrorHidesInternalDetails() {
+        val cause = IllegalStateException("UNIQUE constraint failed: sale_details.id")
+        assertEquals(
+            "No se pudo acceder a los datos locales. Contacta al administrador.",
+            ErrorMapper.mapException(Exception("Could not open database", cause))
+        )
+    }
+
+    @Test
     fun testUnknownHostExceptionMappedToSpanish() {
         val ex = UnknownHostException("Unable to resolve host \"api.yungasdistribuidora.cc\"")
         val message = ErrorMapper.mapException(ex)

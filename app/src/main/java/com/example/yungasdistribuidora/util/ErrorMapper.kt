@@ -4,10 +4,26 @@ import com.google.gson.JsonParseException
 import java.net.ConnectException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
+import java.util.logging.Logger
 import javax.net.ssl.SSLException
 
 object ErrorMapper {
     fun mapException(throwable: Throwable): String {
+        // Never expose SQL, row values, or Room schema dumps to the UI.
+        val databaseFailure = generateSequence(throwable) { it.cause }.take(12).firstOrNull {
+            val message = it.message.orEmpty()
+            it.javaClass.name.startsWith("android.database.") ||
+                message.contains("SQLITE_", ignoreCase = true) ||
+                message.contains("Room cannot verify") ||
+                (message.contains("migration from", ignoreCase = true) &&
+                    message.contains("required", ignoreCase = true)) ||
+                message.contains("Migration didn't properly handle") ||
+                message.contains("UNIQUE constraint failed")
+        }
+        if (databaseFailure != null) {
+            Logger.getLogger("Yungas.LocalDatabase").warning("local_database_failure: ${databaseFailure.javaClass.simpleName}")
+            return "No se pudo acceder a los datos locales. Contacta al administrador."
+        }
         return when (throwable) {
             is UnknownHostException, is ConnectException -> "No tienes conexión a internet."
             is SocketTimeoutException -> "La conexión tardó demasiado. Intenta nuevamente."

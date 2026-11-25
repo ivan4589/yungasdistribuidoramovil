@@ -226,14 +226,75 @@ val MIGRATION_5_6 = object : Migration(5, 6) {
 }
 
 /**
- * Previous development APKs used Room version 6 with different identity hashes.
- * A version bump causes Room to validate the actual schema and update its identity
- * without deleting user data. An incompatible physical schema still fails safely.
+ * Repair development builds that reported DB version 6 with a sales table
+ * whose SQLite nullability did not match SaleEntity (paymentStatus,
+ * paidAmount and balance). Always rebuild via the actual Room schema.
+ *
+ * Existing detail/bonus rows are preserved because DROP TABLE on a parent
+ * may cascade through the enforced SQLite foreign keys inside Room's
+ * migration transaction. Avoid PRAGMA foreign_keys=OFF in a transaction.
  */
 val MIGRATION_6_7 = object : Migration(6, 7) {
     override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("CREATE TEMP TABLE _sale_details_backup_v7 AS SELECT * FROM sale_details")
+        db.execSQL("CREATE TEMP TABLE _sale_bonuses_backup_v7 AS SELECT * FROM sale_bonuses")
+
+        db.execSQL("""
+            CREATE TABLE sales_v7 (
+                id TEXT PRIMARY KEY NOT NULL,
+                saleNumber TEXT NOT NULL,
+                clientId TEXT NOT NULL,
+                clientName TEXT,
+                status TEXT NOT NULL,
+                paymentStatus TEXT,
+                saleType TEXT NOT NULL,
+                dueDate TEXT,
+                subtotal REAL NOT NULL,
+                discount REAL NOT NULL,
+                total REAL NOT NULL,
+                paidAmount REAL,
+                balance REAL,
+                observations TEXT,
+                pdfUrl TEXT,
+                sellerId TEXT,
+                sellerName TEXT,
+                createdAt TEXT NOT NULL,
+                updatedAt TEXT NOT NULL,
+                cancelledPdfUrl TEXT
+            )
+        """.trimIndent())
+
+        // Earlier installations may lack the cancellation receipt column.
+        val columns = db.query("PRAGMA table_info(sales)").use { cursor ->
+            val columnIndex = cursor.getColumnIndexOrThrow("name")
+            buildSet { while (cursor.moveToNext()) add(cursor.getString(columnIndex)) }
+        }
+        fun maybeColumn(name: String): String =
+            if (name in columns) "`$name`" else "NULL"
+
+        db.execSQL("""
+            INSERT INTO sales_v7 (
+                id, saleNumber, clientId, clientName, status, paymentStatus, saleType,
+                dueDate, subtotal, discount, total, paidAmount, balance, observations,
+                pdfUrl, sellerId, sellerName, createdAt, updatedAt, cancelledPdfUrl
+            )
+            SELECT
+                id, saleNumber, clientId, clientName, status, paymentStatus, saleType,
+                dueDate, subtotal, discount, total, ${maybeColumn("paidAmount")},
+                ${maybeColumn("balance")}, observations, pdfUrl, sellerId, sellerName,
+                createdAt, updatedAt, ${maybeColumn("cancelledPdfUrl")}
+            FROM sales
+        """.trimIndent())
+
+        db.execSQL("DROP TABLE sales")
+        db.execSQL("ALTER TABLE sales_v7 RENAME TO sales")
+        db.execSQL("INSERT INTO sale_details SELECT * FROM _sale_details_backup_v7")
+        db.execSQL("INSERT INTO sale_bonuses SELECT * FROM _sale_bonuses_backup_v7")
+        db.execSQL("DROP TABLE _sale_details_backup_v7")
+        db.execSQL("DROP TABLE _sale_bonuses_backup_v7")
+
         db.query("PRAGMA foreign_key_check").use { cursor ->
-            check(!cursor.moveToFirst()) { "Corrupt foreign keys in local sales database" }
+            check(!cursor.moveToFirst()) { "Claves foráneas inválidas después de migración 6 a 7" }
         }
     }
 }

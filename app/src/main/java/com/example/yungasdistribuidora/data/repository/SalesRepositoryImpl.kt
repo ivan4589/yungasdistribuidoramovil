@@ -25,8 +25,8 @@ class SalesRepositoryImpl(
             if (response.isSuccessful && response.body() != null) {
                 val dto = response.body()!!
                 val entity = SaleMapper.toEntity(dto)
-                val details = SaleMapper.toDetailEntities(dto.id, dto.details)
-                val bonuses = SaleMapper.toBonusEntities(dto.id, dto.bonuses)
+                val details = dto.details?.let { SaleMapper.toDetailEntities(dto.id, it) }
+                val bonuses = dto.bonuses?.let { SaleMapper.toBonusEntities(dto.id, it) }
                 saleDao.saveCompleteSale(entity, details, bonuses)
                 Result.success(dto)
             } else {
@@ -68,8 +68,8 @@ class SalesRepositoryImpl(
                 // We do not interpret a missing row as a server deletion.
                 saleDao.saveRemoteBatch(
                     sales = list.map(SaleMapper::toEntity),
-                    details = list.map { SaleMapper.toDetailEntities(it.id, it.details) },
-                    bonuses = list.map { SaleMapper.toBonusEntities(it.id, it.bonuses) }
+                    details = list.map { sale -> sale.details?.let { SaleMapper.toDetailEntities(sale.id, it) } },
+                    bonuses = list.map { sale -> sale.bonuses?.let { SaleMapper.toBonusEntities(sale.id, it) } }
                 )
 
                 // Do not remove local sales based solely on one API page: the endpoint can
@@ -103,7 +103,7 @@ class SalesRepositoryImpl(
                 if (cached != null) Result.success(cached)
                 else Result.failure(Exception(ErrorMapper.mapException(e)))
             } catch (databaseError: Exception) {
-                Result.failure(Exception("No se pudo leer la venta local: ${databaseError.message}", databaseError))
+                Result.failure(Exception(ErrorMapper.mapException(databaseError), databaseError))
             }
         }
 
@@ -112,12 +112,12 @@ class SalesRepositoryImpl(
             return try {
                 saleDao.saveCompleteSale(
                     SaleMapper.toEntity(dto),
-                    SaleMapper.toDetailEntities(dto.id, dto.details),
-                    SaleMapper.toBonusEntities(dto.id, dto.bonuses)
+                    dto.details?.let { SaleMapper.toDetailEntities(dto.id, it) },
+                    dto.bonuses?.let { SaleMapper.toBonusEntities(dto.id, it) }
                 )
                 Result.success(dto)
             } catch (databaseError: Exception) {
-                Result.failure(Exception("No se pudo almacenar la venta en Room: ${databaseError.message}", databaseError))
+                Result.failure(Exception(ErrorMapper.mapException(databaseError), databaseError))
             }
         }
 
@@ -126,7 +126,7 @@ class SalesRepositoryImpl(
             if (cached != null) Result.success(cached)
             else Result.failure(Exception(extractSafeBackendMessage(response)))
         } catch (databaseError: Exception) {
-            Result.failure(Exception("No se pudo recuperar la venta local: ${databaseError.message}", databaseError))
+            Result.failure(Exception(ErrorMapper.mapException(databaseError), databaseError))
         }
     }
 
@@ -136,8 +136,8 @@ class SalesRepositoryImpl(
             if (response.isSuccessful && response.body() != null) {
                 val dto = response.body()!!
                 val entity = SaleMapper.toEntity(dto)
-                val details = SaleMapper.toDetailEntities(dto.id, dto.details)
-                val bonuses = SaleMapper.toBonusEntities(dto.id, dto.bonuses)
+                val details = dto.details?.let { SaleMapper.toDetailEntities(dto.id, it) }
+                val bonuses = dto.bonuses?.let { SaleMapper.toBonusEntities(dto.id, it) }
                 saleDao.saveCompleteSale(entity, details, bonuses)
                 Result.success(dto)
             } else {
@@ -154,8 +154,8 @@ class SalesRepositoryImpl(
             if (response.isSuccessful && response.body() != null) {
                 val dto = response.body()!!
                 val entity = SaleMapper.toEntity(dto)
-                val details = SaleMapper.toDetailEntities(dto.id, dto.details)
-                val bonuses = SaleMapper.toBonusEntities(dto.id, dto.bonuses)
+                val details = dto.details?.let { SaleMapper.toDetailEntities(dto.id, it) }
+                val bonuses = dto.bonuses?.let { SaleMapper.toBonusEntities(dto.id, it) }
                 saleDao.saveCompleteSale(entity, details, bonuses)
                 Result.success(dto)
             } else {
@@ -322,8 +322,8 @@ class SalesRepositoryImpl(
             if (response.isSuccessful && response.body() != null) {
                 val dto = response.body()!!
                 val entity = SaleMapper.toEntity(dto)
-                val details = SaleMapper.toDetailEntities(dto.id, dto.details)
-                val bonuses = SaleMapper.toBonusEntities(dto.id, dto.bonuses)
+                val details = dto.details?.let { SaleMapper.toDetailEntities(dto.id, it) }
+                val bonuses = dto.bonuses?.let { SaleMapper.toBonusEntities(dto.id, it) }
                 saleDao.saveCompleteSale(entity, details, bonuses)
                 Result.success(dto)
             } else {

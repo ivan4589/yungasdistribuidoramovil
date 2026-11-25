@@ -7,6 +7,10 @@ import androidx.sqlite.db.SupportSQLiteOpenHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.example.yungasdistribuidora.data.local.sale.SaleBonusEntity
+import com.example.yungasdistribuidora.data.local.sale.SaleDetailEntity
+import com.example.yungasdistribuidora.data.local.sale.SaleEntity
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -24,6 +28,135 @@ class AppDatabaseMigrationTest {
     @Test fun migrate6ToLatest() = checkUpgrade(6)
     @Test fun migrate6LegacyNonNullPaymentColumnsToLatest() =
         checkUpgrade(6, forceLegacySalesNullability = true)
+
+    @Test fun migrateWithForeignKeysEnabled() = checkForeignKeyModes(true)
+    @Test fun migrateWithForeignKeysDisabled() = checkForeignKeyModes(false)
+
+    private fun checkForeignKeyModes(enabled: Boolean) {
+        for (version in listOf(5, 6)) {
+            val name = "migration-fk-$version-${System.nanoTime()}"
+            try {
+                createLegacyDatabase(name, version, false, forceLegacySalesNullability = version == 6)
+                val config = SupportSQLiteOpenHelper.Configuration.builder(context)
+                    .name(name)
+                    .callback(object : SupportSQLiteOpenHelper.Callback(version) {
+                        override fun onConfigure(db: SupportSQLiteDatabase) {
+                            db.setForeignKeyConstraintsEnabled(enabled)
+                        }
+                        override fun onCreate(db: SupportSQLiteDatabase) = error("Missing fixture")
+                        override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) =
+                            error("Unexpected fixture version")
+                    }).build()
+                val before = FrameworkSQLiteOpenHelperFactory().create(config).use { helper ->
+                    val db = helper.writableDatabase
+                    assertEquals(if (enabled) 1 else 0, scalar(db, "PRAGMA foreign_keys"))
+                    assertEquals(version, db.version)
+                    db.execSQL("""
+                        INSERT INTO sales (id, saleNumber, clientId, status, paymentStatus, saleType,
+                            subtotal, discount, total, paidAmount, balance, createdAt, updatedAt)
+                        VALUES ('s2', 'SALE-2', 'c1', 'PENDING', 'UNPAID', 'CASH',
+                            45, 5, 40, 3, 37, '2026-01-01', '2026-01-02')
+                    """.trimIndent())
+                    db.execSQL("INSERT INTO sale_details VALUES ('d2', 's1', 'p1', 'Product', 1, 11, 1, 11)")
+                    db.execSQL("INSERT INTO sale_details VALUES ('d3', 's2', 'p1', 'Product', 3, 15, 0, 45)")
+                    db.execSQL("INSERT INTO sale_bonuses VALUES ('bonus2', 's2', 'p1', 'Product', 1)")
+                    val rows = snapshot(db)
+                    val migration = if (version == 5) MIGRATION_5_6 else MIGRATION_6_7
+                    // Simulate an interruption after all SQL has run but before commit.
+                    db.beginTransaction()
+                    try {
+                        migration.migrate(db)
+                        db.version = version + 1
+                        assertEquals(rows, snapshot(db))
+                    } finally {
+                        db.endTransaction()
+                    }
+                    assertEquals(version, db.version)
+                    assertEquals(rows, snapshot(db))
+                    db.beginTransaction()
+                    try {
+                        migration.migrate(db)
+                        db.version = version + 1
+                        db.setTransactionSuccessful()
+                    } finally {
+                        db.endTransaction()
+                    }
+                    assertEquals(rows, snapshot(db))
+                    assertEquals(0, scalar(db, "SELECT COUNT(*) FROM pragma_foreign_key_check"))
+                    rows
+                }
+                // Room must accept the final schema and reopen without altering rows.
+                repeat(2) {
+                    openRoom(name).useRoom { room ->
+                        val db = room.openHelper.writableDatabase
+                        assertEquals(7, db.version)
+                        assertEquals(before, snapshot(db))
+                        assertEquals(0, scalar(db, "SELECT COUNT(*) FROM pragma_foreign_key_check"))
+                    }
+                }
+            } finally {
+                context.deleteDatabase(name)
+            }
+        }
+    }
+
+    @Test
+    fun repeatedBatchesAndPartialResponsesPreserveSaleLines() = runBlocking {
+        val name = "migration-sync-${System.nanoTime()}"
+        try {
+            openRoom(name).useRoom { room ->
+                val dao = room.saleDao()
+                val sale = SaleEntity("s1", "SALE-1", "c1", null, "PENDING", null,
+                    "CASH", null, 55.0, 0.0, 55.0, null, null, null, null, null, null,
+                    "2026-01-01", "2026-01-01")
+                val detail = SaleDetailEntity("d1", "s1", "p1", null, 5, 11.0, true, 55.0)
+                val bonus = SaleBonusEntity("b1", "s1", "p1", null, 2)
+                repeat(2) {
+                    dao.saveRemoteBatch(listOf(sale), listOf(listOf(detail)), listOf(listOf(bonus)))
+                }
+                val other = sale.copy(id = "s2", saleNumber = "SALE-2")
+                val otherDetail = detail.copy(id = "d2", saleId = "s2")
+                dao.saveCompleteSale(other, listOf(otherDetail), emptyList())
+                dao.saveRemoteBatch(listOf(sale.copy(status = "CONFIRMED")), listOf(null), listOf(null))
+                assertEquals("CONFIRMED", dao.getSaleById("s1")?.status)
+                assertEquals(listOf(detail), dao.getSaleDetails("s1"))
+                assertEquals(listOf(bonus), dao.getSaleBonuses("s1"))
+                assertEquals(listOf(otherDetail), dao.getSaleDetails("s2"))
+                // One invalid row must not steal an ID from another sale or erase local rows.
+                try {
+                    dao.saveCompleteSale(sale, listOf(detail.copy(id = "d2")), emptyList())
+                    fail("Expected cross-sale primary key collision to roll back")
+                } catch (_: android.database.sqlite.SQLiteConstraintException) {
+                    assertEquals("CONFIRMED", dao.getSaleById("s1")?.status)
+                    assertEquals(listOf(detail), dao.getSaleDetails("s1"))
+                    assertEquals(listOf(bonus), dao.getSaleBonuses("s1"))
+                }
+                assertEquals(0, scalar(room.openHelper.writableDatabase, "SELECT COUNT(*) FROM pragma_foreign_key_check"))
+            }
+        } finally {
+            context.deleteDatabase(name)
+        }
+        Unit
+    }
+
+    private fun scalar(db: SupportSQLiteDatabase, sql: String): Int = db.query(sql).use {
+        assertTrue(it.moveToFirst())
+        it.getInt(0)
+    }
+
+    private fun snapshot(db: SupportSQLiteDatabase): Map<String, List<List<String?>>> =
+        listOf("sales", "sale_details", "sale_bonuses").associateWith { table ->
+            // Explicit ordering of rows and columns from the historic schema.
+            db.query("SELECT * FROM ${table} ORDER BY id").use { cursor ->
+                buildList {
+                    while (cursor.moveToNext()) {
+                        add(List(cursor.columnCount) { index ->
+                            if (cursor.isNull(index)) null else cursor.getString(index)
+                        })
+                    }
+                }
+            }
+        }
 
     @Test
     fun freshDatabaseAndReopen() {
@@ -152,33 +285,9 @@ class AppDatabaseMigrationTest {
                     if (version >= 5) {
                         MIGRATION_4_5.migrate(db)
                     }
-                    if (version >= 6) {
+                    // Historic v6 installations could still carry the v5 NOT NULL schema.
+                    if (version >= 6 && !forceLegacySalesNullability) {
                         MIGRATION_5_6.migrate(db)
-                        if (forceLegacySalesNullability) {
-                            // Reproduce version-6 builds where SQLite has NOT NULL payment columns
-                            // although Room's SaleEntity already expects nullable columns.
-                            db.execSQL("CREATE TEMP TABLE _d AS SELECT * FROM sale_details")
-                            db.execSQL("CREATE TEMP TABLE _b AS SELECT * FROM sale_bonuses")
-                            db.execSQL("""CREATE TABLE sales_legacy (
-                                id TEXT PRIMARY KEY NOT NULL,
-                                saleNumber TEXT NOT NULL, clientId TEXT NOT NULL,
-                                clientName TEXT, status TEXT NOT NULL,
-                                paymentStatus TEXT NOT NULL, saleType TEXT NOT NULL,
-                                dueDate TEXT, subtotal REAL NOT NULL, discount REAL NOT NULL,
-                                total REAL NOT NULL, paidAmount REAL NOT NULL,
-                                balance REAL NOT NULL, observations TEXT, pdfUrl TEXT,
-                                sellerId TEXT, sellerName TEXT,
-                                createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL,
-                                cancelledPdfUrl TEXT
-                            )""")
-                            db.execSQL("INSERT INTO sales_legacy SELECT * FROM sales")
-                            db.execSQL("DROP TABLE sales")
-                            db.execSQL("ALTER TABLE sales_legacy RENAME TO sales")
-                            db.execSQL("INSERT INTO sale_details SELECT * FROM _d")
-                            db.execSQL("INSERT INTO sale_bonuses SELECT * FROM _b")
-                            db.execSQL("DROP TABLE _d")
-                            db.execSQL("DROP TABLE _b")
-                        }
                     }
                 }
                 override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) =

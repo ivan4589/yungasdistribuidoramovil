@@ -176,6 +176,10 @@ val MIGRATION_5_6 = object : Migration(5, 6) {
         // Back up dependents before replacing their parent table.
         db.execSQL("CREATE TEMP TABLE _sale_details_preserved AS SELECT * FROM sale_details")
         db.execSQL("CREATE TEMP TABLE _sale_bonuses_preserved AS SELECT * FROM sale_bonuses")
+        // Remove only the rows safely held in the transaction-local backups.
+        // DROP TABLE may cascade with FK ON, but leaves children intact with FK OFF.
+        db.execSQL("DELETE FROM sale_details")
+        db.execSQL("DELETE FROM sale_bonuses")
         db.execSQL("""
             CREATE TABLE IF NOT EXISTS sales_v6 (
                 id TEXT PRIMARY KEY NOT NULL,
@@ -238,6 +242,8 @@ val MIGRATION_6_7 = object : Migration(6, 7) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("CREATE TEMP TABLE _sale_details_backup_v7 AS SELECT * FROM sale_details")
         db.execSQL("CREATE TEMP TABLE _sale_bonuses_backup_v7 AS SELECT * FROM sale_bonuses")
+        db.execSQL("DELETE FROM sale_details")
+        db.execSQL("DELETE FROM sale_bonuses")
 
         db.execSQL("""
             CREATE TABLE sales_v7 (

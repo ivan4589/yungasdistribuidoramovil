@@ -5,17 +5,25 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
+import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface SaleDao {
     @Transaction
-    suspend fun saveCompleteSale(sale: SaleEntity, details: List<SaleDetailEntity>, bonuses: List<SaleBonusEntity>) {
+    suspend fun saveCompleteSale(sale: SaleEntity, details: List<SaleDetailEntity>?, bonuses: List<SaleBonusEntity>?) {
+        require(details == null || (details.all { it.saleId == sale.id } && details.map { it.id }.distinct().size == details.size))
+        require(bonuses == null || (bonuses.all { it.saleId == sale.id } && bonuses.map { it.id }.distinct().size == bonuses.size))
         insertSale(sale)
-        deleteDetails(sale.id)
-        deleteBonuses(sale.id)
-        insertDetails(details)
-        insertBonuses(bonuses)
+        // Null means omitted by a partial response; only an explicit list replaces rows.
+        details?.let {
+            deleteDetails(sale.id)
+            insertDetails(it)
+        }
+        bonuses?.let {
+            deleteBonuses(sale.id)
+            insertBonuses(it)
+        }
     }
 
     /**
@@ -25,8 +33,8 @@ interface SaleDao {
     @Transaction
     suspend fun saveRemoteBatch(
         sales: List<SaleEntity>,
-        details: List<List<SaleDetailEntity>>,
-        bonuses: List<List<SaleBonusEntity>>
+        details: List<List<SaleDetailEntity>?>,
+        bonuses: List<List<SaleBonusEntity>?>
     ) {
         require(sales.size == details.size && sales.size == bonuses.size)
         sales.forEachIndexed { index, sale ->
@@ -55,13 +63,14 @@ interface SaleDao {
     @Query("SELECT * FROM sale_bonuses WHERE saleId = :saleId")
     suspend fun getSaleBonuses(saleId: String): List<SaleBonusEntity>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    // REPLACE deletes the parent and cascades children, including on header-only updates.
+    @Upsert
     suspend fun insertSale(sale: SaleEntity)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertDetails(details: List<SaleDetailEntity>)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertBonuses(bonuses: List<SaleBonusEntity>)
 
     @Query("DELETE FROM sales WHERE id = :id")
